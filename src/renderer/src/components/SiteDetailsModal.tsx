@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { WPCLITerminal } from './WPCLITerminal.tsx';
 import { DatabaseModal } from './DatabaseModal.tsx';
+import { StatusDisplay, ActionIcons } from './Icons.tsx';
 
 interface SiteDetailsModalProps {
   site: WordPressSite | null;
@@ -124,15 +125,12 @@ export function SiteDetailsModal({ site, isOpen, onClose }: SiteDetailsModalProp
                   ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
                   : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
               }`}>
-                {siteInfo.status === 'running' && '🟢 Running'}
-                {siteInfo.status === 'stopped' && '⚫ Stopped'}
-                {siteInfo.status === 'starting' && '🟡 Starting...'}
-                {siteInfo.status === 'stopping' && '🟡 Stopping...'}
-                {siteInfo.status === 'error' && '🔴 Error'}
+                <StatusDisplay status={siteInfo.status} className="flex items-center space-x-1" />
               </span>
               {siteInfo.ssl && (
-                <span className="px-2 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 rounded text-sm font-medium">
-                  🔒 SSL
+                <span className="px-2 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 rounded text-sm font-medium flex items-center space-x-1">
+                  <ActionIcons.SSL className="w-3 h-3" />
+                  <span>SSL</span>
                 </span>
               )}
             </div>

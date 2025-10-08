@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ToolIcons, StatusDisplay } from '../components/Icons.tsx';
 
 interface ToolsProps {}
 
@@ -103,7 +104,7 @@ export function Tools() {
           <div className="p-6">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
               <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mr-3">
-                🐳
+                <ToolIcons.Docker className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               </div>
               Docker Status
             </h2>
@@ -116,7 +117,7 @@ export function Tools() {
                     ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
                     : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
                 }`}>
-                  {dockerStatus.installed ? '✅ Installed' : '❌ Not Installed'}
+                  {dockerStatus.installed ? 'Installed' : 'Not Installed'}
                 </span>
               </div>
               
@@ -127,7 +128,7 @@ export function Tools() {
                     ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
                     : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
                 }`}>
-                  {dockerStatus.running ? '🟢 Running' : '🟡 Stopped'}
+                  {dockerStatus.running ? 'Running' : 'Stopped'}
                 </span>
               </div>
 
@@ -150,7 +151,7 @@ export function Tools() {
           <div className="p-6">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
               <div className="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center mr-3">
-                💻
+                <ToolIcons.System className="w-5 h-5 text-green-600 dark:text-green-400" />
               </div>
               System Information
             </h2>
@@ -255,35 +256,47 @@ export function Tools() {
         <div className="p-6">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
             <div className="w-8 h-8 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex items-center justify-center mr-3">
-              💡
+              <ToolIcons.Tip className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
             </div>
             Performance Tips
           </h2>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <h3 className="font-medium text-blue-900 dark:text-blue-300 mb-2">💾 Memory Usage</h3>
+              <h3 className="font-medium text-blue-900 dark:text-blue-300 mb-2 flex items-center space-x-2">
+                <ToolIcons.Memory className="w-4 h-4" />
+                <span>Memory Usage</span>
+              </h3>
               <p className="text-sm text-blue-800 dark:text-blue-300">
                 Allocate at least 4GB RAM to Docker for optimal WordPress performance.
               </p>
             </div>
             
             <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-              <h3 className="font-medium text-green-900 dark:text-green-300 mb-2">⚡ CPU Performance</h3>
+              <h3 className="font-medium text-green-900 dark:text-green-300 mb-2 flex items-center space-x-2">
+                <ToolIcons.CPU className="w-4 h-4" />
+                <span>CPU Performance</span>
+              </h3>
               <p className="text-sm text-green-800 dark:text-green-300">
                 Enable Docker's experimental features for better CPU utilization.
               </p>
             </div>
             
             <div className="p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
-              <h3 className="font-medium text-purple-900 dark:text-purple-300 mb-2">📁 File Sync</h3>
+              <h3 className="font-medium text-purple-900 dark:text-purple-300 mb-2 flex items-center space-x-2">
+                <ToolIcons.FileSync className="w-4 h-4" />
+                <span>File Sync</span>
+              </h3>
               <p className="text-sm text-purple-800 dark:text-purple-300">
                 Use bind mounts for faster file synchronization during development.
               </p>
             </div>
             
             <div className="p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
-              <h3 className="font-medium text-orange-900 dark:text-orange-300 mb-2">🔌 Extensions</h3>
+              <h3 className="font-medium text-orange-900 dark:text-orange-300 mb-2 flex items-center space-x-2">
+                <ToolIcons.Extensions className="w-4 h-4" />
+                <span>Extensions</span>
+              </h3>
               <p className="text-sm text-orange-800 dark:text-orange-300">
                 Disable unnecessary WordPress plugins in development for better performance.
               </p>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CreateSiteModal } from '../components/CreateSiteModal.tsx';
 import { SiteDetailsModal } from '../components/SiteDetailsModal.tsx';
+import { TrashIcon } from '@heroicons/react/24/outline';
 
 interface WordPressSite {
   id: string;
@@ -266,7 +267,7 @@ export function Sites() {
                     className="btn-danger px-3 py-2"
                     title="Delete Site"
                   >
-                    🗑
+                    <TrashIcon className="w-4 h-4" />
                   </button>
                 </div>
                 <button

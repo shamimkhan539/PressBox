@@ -2,11 +2,11 @@ import { app, BrowserWindow, ipcMain, Menu, shell, dialog } from "electron";
 import { join } from "path";
 import { autoUpdater } from "electron-updater";
 import Store from "electron-store";
-import { WordPressManager } from "./services/wordpressManager.ts";
-import { DockerManager } from "./services/dockerManager.ts";
-import { PluginManager } from "./services/pluginManager.ts";
-import { IPCHandlers } from "./ipc/handlers.ts";
-import { createApplicationMenu } from "./menu.ts";
+import { WordPressManager } from "./services/wordpressManager";
+import { DockerManager } from "./services/dockerManager";
+import { PluginManager } from "./services/pluginManager";
+import { IPCHandlers } from "./ipc/handlers";
+import { createApplicationMenu } from "./menu";
 
 /**
  * PressBox Main Process

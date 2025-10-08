@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ToolIcons, ActionIcons } from './Icons.tsx';
 
 interface DatabaseModalProps {
   siteId: string;
@@ -128,7 +129,7 @@ export function DatabaseModal({ siteId, siteName, isOpen, onClose }: DatabaseMod
                 >
                   <div className="flex items-center mb-2">
                     <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mr-3">
-                      🗄️
+                      <ToolIcons.Database className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                     </div>
                     <div className="font-medium text-gray-900 dark:text-white">Open Adminer</div>
                   </div>
@@ -144,7 +145,7 @@ export function DatabaseModal({ siteId, siteName, isOpen, onClose }: DatabaseMod
                 >
                   <div className="flex items-center mb-2">
                     <div className="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center mr-3">
-                      📦
+                      <ActionIcons.Export className="w-5 h-5 text-green-600 dark:text-green-400" />
                     </div>
                     <div className="font-medium text-gray-900 dark:text-white">Export Database</div>
                   </div>
@@ -160,7 +161,7 @@ export function DatabaseModal({ siteId, siteName, isOpen, onClose }: DatabaseMod
                 >
                   <div className="flex items-center mb-2">
                     <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center mr-3">
-                      📥
+                      <ActionIcons.Import className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                     </div>
                     <div className="font-medium text-gray-900 dark:text-white">Import Database</div>
                   </div>
@@ -176,7 +177,7 @@ export function DatabaseModal({ siteId, siteName, isOpen, onClose }: DatabaseMod
                 >
                   <div className="flex items-center mb-2">
                     <div className="w-8 h-8 bg-red-100 dark:bg-red-900 rounded-lg flex items-center justify-center mr-3">
-                      🔄
+                      <ActionIcons.Refresh className="w-5 h-5 text-red-600 dark:text-red-400" />
                     </div>
                     <div className="font-medium text-red-600 dark:text-red-400">Reset Database</div>
                   </div>

@@ -1,5 +1,12 @@
 # PressBox
 
+![PressBox Logo](https://via.placeholder.com/200x80/1e40af/ffffff?text=PressBox)
+
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/shamimkhan539/PressBox/releases)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/shamimkhan539/PressBox/releases)
+[![Docker](https://img.shields.io/badge/docker-required-blue.svg)](https://www.docker.com/products/docker-desktop)
+
 **Cross-platform local WordPress development environment** - A modern, open-source alternative to LocalWP
 
 PressBox is a desktop application built with Electron, React, and TypeScript that provides a fast, extensible, and user-friendly way to create and manage local WordPress development sites.
