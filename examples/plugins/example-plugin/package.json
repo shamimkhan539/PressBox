@@ -1,0 +1,70 @@
+{
+    "id": "example-plugin",
+    "name": "Example Plugin",
+    "version": "1.0.0",
+    "description": "An example plugin demonstrating the PressBox plugin system",
+    "author": "PressBox Team",
+    "website": "https://pressbox.dev",
+    "main": "index.js",
+    "contributes": {
+        "commands": [
+            {
+                "id": "example.helloWorld",
+                "title": "Hello World",
+                "category": "Example"
+            },
+            {
+                "id": "example.siteInfo",
+                "title": "Show Site Info",
+                "category": "Example"
+            }
+        ],
+        "menus": [
+            {
+                "id": "example.menu",
+                "label": "Example Plugin",
+                "submenu": [
+                    {
+                        "id": "example.submenu.hello",
+                        "label": "Say Hello",
+                        "command": "example.helloWorld"
+                    },
+                    {
+                        "id": "example.submenu.info",
+                        "label": "Site Info",
+                        "command": "example.siteInfo"
+                    }
+                ]
+            }
+        ],
+        "views": [
+            {
+                "id": "example.sidebarView",
+                "name": "Example View",
+                "type": "sidebar"
+            }
+        ],
+        "settings": [
+            {
+                "id": "example.greeting",
+                "title": "Greeting Message",
+                "description": "The message to show when greeting users",
+                "type": "string",
+                "default": "Hello from Example Plugin!"
+            },
+            {
+                "id": "example.enabled",
+                "title": "Enable Features",
+                "description": "Enable additional plugin features",
+                "type": "boolean",
+                "default": true
+            }
+        ]
+    },
+    "permissions": [
+        "sites:read",
+        "notifications:show",
+        "settings:read",
+        "settings:write"
+    ]
+}
