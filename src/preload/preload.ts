@@ -83,6 +83,9 @@ interface CreateSiteConfig {
     path?: string;
     ssl?: boolean;
     multisite?: boolean;
+    template?: string;
+    plugins?: string[];
+    themes?: string[];
 }
 
 interface DockerImage {

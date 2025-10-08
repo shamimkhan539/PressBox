@@ -19,5 +19,8 @@ export default defineConfig({
     },
     server: {
         port: 3000,
+        strictPort: false, // Allow port switching if 3000 is busy
+        host: true,
+        open: false,
     },
 });

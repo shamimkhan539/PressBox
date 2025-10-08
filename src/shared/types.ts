@@ -60,6 +60,9 @@ export interface CreateSiteRequest {
     adminUser?: string;
     adminPassword?: string;
     adminEmail?: string;
+    template?: string;
+    plugins?: string[];
+    themes?: string[];
 }
 
 // Docker Types

@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const { join } = require("path");
 const fs = require("fs");
 const os = require("os");
+const path = require("path");
 
 /**
  * PressBox Main Process - JavaScript Version for Quick Start
@@ -77,16 +78,16 @@ class PressBoxApp {
         this.mainWindow.once("ready-to-show", () => {
             this.mainWindow?.show();
 
-            // Only open DevTools when explicitly needed for debugging
-            // Remove the auto-open in development
-            // if (process.env.NODE_ENV === "development") {
-            //     this.mainWindow?.webContents.openDevTools();
-            // }
+            // Enable DevTools for debugging the blank screen issue
+            if (process.env.NODE_ENV === "development") {
+                this.mainWindow?.webContents.openDevTools();
+            }
         });
 
         // Load the app
         if (process.env.NODE_ENV === "development") {
-            this.mainWindow.loadURL("http://localhost:3001");
+            // Try different ports that Vite might be using
+            this.loadDevelopmentURL();
         } else {
             this.mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
         }
@@ -434,6 +435,107 @@ class PressBoxApp {
                 type: "community",
             },
         ];
+    }
+
+    /**
+     * Try to load the development URL from common Vite ports
+     */
+    async loadDevelopmentURL() {
+        const commonPorts = [3000, 5173, 3001, 3002];
+
+        for (const port of commonPorts) {
+            try {
+                console.log(
+                    `📡 Trying to connect to dev server on port: ${port}`
+                );
+                await this.mainWindow.loadURL(`http://localhost:${port}`);
+                console.log(
+                    `✅ Successfully connected to dev server on port: ${port}`
+                );
+                return;
+            } catch (error) {
+                console.log(`❌ Port ${port} not available, trying next...`);
+                continue;
+            }
+        }
+
+        // If all ports fail, show an error page
+        this.showConnectionError();
+    }
+
+    /**
+     * Show a connection error page
+     */
+    showConnectionError() {
+        const errorHTML = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>PressBox - Connection Error</title>
+                <style>
+                    body { 
+                        font-family: system-ui, -apple-system, sans-serif; 
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: center; 
+                        height: 100vh; 
+                        margin: 0; 
+                        background: #f5f5f5; 
+                        color: #333;
+                    }
+                    .error-container { 
+                        text-align: center; 
+                        padding: 2rem; 
+                        background: white; 
+                        border-radius: 8px; 
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                        max-width: 400px;
+                    }
+                    .error-icon { 
+                        font-size: 48px; 
+                        margin-bottom: 1rem; 
+                    }
+                    h1 { 
+                        margin: 0 0 1rem 0; 
+                        color: #e74c3c; 
+                    }
+                    p { 
+                        margin: 0.5rem 0; 
+                        line-height: 1.5; 
+                    }
+                    .instructions { 
+                        background: #f8f9fa; 
+                        padding: 1rem; 
+                        border-radius: 4px; 
+                        margin-top: 1rem; 
+                    }
+                    code { 
+                        background: #e9ecef; 
+                        padding: 2px 6px; 
+                        border-radius: 3px; 
+                        font-family: monospace; 
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="error-container">
+                    <div class="error-icon">🚫</div>
+                    <h1>Development Server Not Found</h1>
+                    <p>Could not connect to the PressBox development server.</p>
+                    <div class="instructions">
+                        <p><strong>To fix this:</strong></p>
+                        <p>1. Open a terminal in the project directory</p>
+                        <p>2. Run <code>npm run dev:react</code></p>
+                        <p>3. Restart this Electron app</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+        `;
+
+        this.mainWindow.loadURL(
+            `data:text/html;charset=utf-8,${encodeURIComponent(errorHTML)}`
+        );
     }
 
     createSimpleStore() {

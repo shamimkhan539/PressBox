@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { WPCLITerminal } from './WPCLITerminal.tsx';
 import { DatabaseModal } from './DatabaseModal.tsx';
+import { FileManager } from './FileManager.tsx';
+import { FileEditor } from './FileEditor.tsx';
+import { SiteHealthDashboard } from './SiteHealthDashboard.tsx';
 import { StatusDisplay, ActionIcons } from './Icons.tsx';
+import { XMarkIcon } from '@heroicons/react/24/outline';
 
 interface SiteDetailsModalProps {
   site: WordPressSite | null;
@@ -29,6 +33,9 @@ export function SiteDetailsModal({ site, isOpen, onClose }: SiteDetailsModalProp
   const [siteInfo, setSiteInfo] = useState<WordPressSite | null>(null);
   const [showWPCLI, setShowWPCLI] = useState(false);
   const [showDatabase, setShowDatabase] = useState(false);
+  const [showHealthDashboard, setShowHealthDashboard] = useState(false);
+  const [currentPath, setCurrentPath] = useState('/');
+  const [editingFile, setEditingFile] = useState<string | null>(null);
 
   useEffect(() => {
     if (site && isOpen) {
@@ -104,11 +111,9 @@ export function SiteDetailsModal({ site, isOpen, onClose }: SiteDetailsModalProp
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <XMarkIcon className="w-5 h-5" />
           </button>
         </div>
 
@@ -167,6 +172,8 @@ export function SiteDetailsModal({ site, isOpen, onClose }: SiteDetailsModalProp
           <nav className="flex space-x-8 px-6" aria-label="Tabs">
             {[
               { key: 'overview', label: 'Overview' },
+              { key: 'files', label: 'Files' },
+              { key: 'health', label: 'Health' },
               { key: 'database', label: 'Database' },
               { key: 'ssl', label: 'SSL' },
               { key: 'utilities', label: 'Utilities' },
@@ -268,6 +275,55 @@ export function SiteDetailsModal({ site, isOpen, onClose }: SiteDetailsModalProp
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'files' && (
+            <div className="h-96 -m-6">
+              <FileManager
+                siteId={siteInfo.id}
+                currentPath={currentPath}
+                onPathChange={setCurrentPath}
+              />
+            </div>
+          )}
+
+          {activeTab === 'health' && (
+            <div className="space-y-4">
+              <div className="text-center">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                  Site Health Dashboard
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Get comprehensive health analytics and performance insights for your site.
+                </p>
+                <button
+                  onClick={() => setShowHealthDashboard(true)}
+                  className="btn-primary"
+                >
+                  Open Health Dashboard
+                </button>
+              </div>
+              
+              {/* Quick Health Overview */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg text-center">
+                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">98</div>
+                  <div className="text-sm text-green-700 dark:text-green-300">Health Score</div>
+                </div>
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg text-center">
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">245ms</div>
+                  <div className="text-sm text-blue-700 dark:text-blue-300">Response Time</div>
+                </div>
+                <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg text-center">
+                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">99.9%</div>
+                  <div className="text-sm text-purple-700 dark:text-purple-300">Uptime</div>
+                </div>
+                <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg text-center">
+                  <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">92</div>
+                  <div className="text-sm text-orange-700 dark:text-orange-300">Performance</div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -405,6 +461,25 @@ export function SiteDetailsModal({ site, isOpen, onClose }: SiteDetailsModalProp
           siteName={siteInfo.name}
           isOpen={showDatabase}
           onClose={() => setShowDatabase(false)}
+        />
+      )}
+
+      {/* File Editor */}
+      {siteInfo && editingFile && (
+        <FileEditor
+          siteId={siteInfo.id}
+          filePath={editingFile}
+          onClose={() => setEditingFile(null)}
+        />
+      )}
+
+      {/* Site Health Dashboard */}
+      {siteInfo && (
+        <SiteHealthDashboard
+          siteId={siteInfo.id}
+          siteName={siteInfo.name}
+          isOpen={showHealthDashboard}
+          onClose={() => setShowHealthDashboard(false)}
         />
       )}
     </div>
