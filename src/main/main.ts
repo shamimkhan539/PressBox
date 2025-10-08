@@ -5,6 +5,8 @@ import Store from "electron-store";
 import { WordPressManager } from "./services/wordpressManager";
 import { DockerManager } from "./services/dockerManager";
 import { PluginManager } from "./services/pluginManager";
+import { ExportManager } from "./services/exportManager";
+import { BlueprintManager } from "./services/blueprintManager";
 import { IPCHandlers } from "./ipc/handlers";
 import { createApplicationMenu } from "./menu";
 
@@ -22,6 +24,8 @@ class PressBoxApp {
     private wordPressManager: WordPressManager;
     private dockerManager: DockerManager;
     private pluginManager: PluginManager;
+    private exportManager: ExportManager;
+    private blueprintManager: BlueprintManager;
     private ipcHandlers: IPCHandlers;
 
     constructor() {
@@ -29,10 +33,16 @@ class PressBoxApp {
         this.dockerManager = new DockerManager();
         this.wordPressManager = new WordPressManager(this.dockerManager);
         this.pluginManager = new PluginManager();
+        this.exportManager = new ExportManager(this.dockerManager);
+        this.blueprintManager = new BlueprintManager(
+            this.dockerManager,
+            this.wordPressManager
+        );
         this.ipcHandlers = new IPCHandlers(
             this.wordPressManager,
             this.dockerManager,
             this.pluginManager,
+            this.blueprintManager,
             this.store
         );
 

@@ -1,0 +1,124 @@
+version: "3.8"
+
+services:
+    apache:
+        image: "pressbox/apache-php:${PHP_VERSION}"
+        container_name: "${SITE_ID}_apache"
+        ports:
+            - "${HTTP_PORT}:80"
+            - "${HTTPS_PORT}:443"
+        volumes:
+            - "${SITE_PATH}:/var/www/html"
+            - "${CONFIG_PATH}/apache/site.conf:/etc/apache2/sites-available/000-default.conf:ro"
+            - "${CONFIG_PATH}/apache/ssl.conf:/etc/apache2/sites-available/default-ssl.conf:ro"
+            - "${CONFIG_PATH}/php/php.ini:/usr/local/etc/php/php.ini:ro"
+            - "${SSL_PATH}:/etc/apache2/ssl:ro"
+            - "${LOGS_PATH}/apache:/var/log/apache2"
+        environment:
+            - WORDPRESS_DB_HOST=mysql:3306
+            - WORDPRESS_DB_NAME=${DB_NAME}
+            - WORDPRESS_DB_USER=${DB_USER}
+            - WORDPRESS_DB_PASSWORD=${DB_PASSWORD}
+            - XDEBUG_MODE=${XDEBUG_MODE:-off}
+            - XDEBUG_CONFIG=client_host=host.docker.internal client_port=9003
+            - PHP_MEMORY_LIMIT=${PHP_MEMORY_LIMIT:-256M}
+            - PHP_MAX_EXECUTION_TIME=${PHP_MAX_EXECUTION_TIME:-300}
+            - APACHE_RUN_USER=www-data
+            - APACHE_RUN_GROUP=www-data
+            - APACHE_LOG_DIR=/var/log/apache2
+        depends_on:
+            - mysql
+        networks:
+            - pressbox-network
+        labels:
+            - "pressbox.site=${SITE_ID}"
+            - "pressbox.service=apache"
+            - "pressbox.version=${PHP_VERSION}"
+        restart: unless-stopped
+        healthcheck:
+            test: ["CMD", "apache2ctl", "configtest"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+
+    mysql:
+        image: "mysql:${MYSQL_VERSION}"
+        container_name: "${SITE_ID}_mysql"
+        environment:
+            MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+            MYSQL_DATABASE: ${DB_NAME}
+            MYSQL_USER: ${DB_USER}
+            MYSQL_PASSWORD: ${DB_PASSWORD}
+            MYSQL_CHARSET: utf8mb4
+            MYSQL_COLLATION: utf8mb4_unicode_ci
+        volumes:
+            - "${DATA_PATH}/mysql:/var/lib/mysql"
+            - "${CONFIG_PATH}/mysql/custom.cnf:/etc/mysql/conf.d/custom.cnf:ro"
+            - "${LOGS_PATH}/mysql:/var/log/mysql"
+        ports:
+            - "${MYSQL_PORT}:3306"
+        networks:
+            - pressbox-network
+        labels:
+            - "pressbox.site=${SITE_ID}"
+            - "pressbox.service=mysql"
+            - "pressbox.version=${MYSQL_VERSION}"
+        restart: unless-stopped
+        healthcheck:
+            test:
+                [
+                    "CMD",
+                    "mysqladmin",
+                    "ping",
+                    "-h",
+                    "localhost",
+                    "-u",
+                    "root",
+                    "-p${DB_ROOT_PASSWORD}",
+                ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+        command: --default-authentication-plugin=mysql_native_password
+
+    adminer:
+        image: adminer:latest
+        container_name: "${SITE_ID}_adminer"
+        ports:
+            - "${ADMINER_PORT}:8080"
+        environment:
+            ADMINER_DEFAULT_SERVER: mysql
+            ADMINER_DESIGN: pepa-linha-dark
+        depends_on:
+            - mysql
+        networks:
+            - pressbox-network
+        labels:
+            - "pressbox.site=${SITE_ID}"
+            - "pressbox.service=adminer"
+        restart: unless-stopped
+
+    mailpit:
+        image: axllent/mailpit:latest
+        container_name: "${SITE_ID}_mailpit"
+        ports:
+            - "${MAILPIT_PORT}:8025"
+            - "${MAILPIT_SMTP_PORT}:1025"
+        environment:
+            MP_SMTP_AUTH_ACCEPT_ANY: 1
+            MP_SMTP_AUTH_ALLOW_INSECURE: 1
+        networks:
+            - pressbox-network
+        labels:
+            - "pressbox.site=${SITE_ID}"
+            - "pressbox.service=mailpit"
+        restart: unless-stopped
+
+networks:
+    pressbox-network:
+        external: true
+        name: pressbox-network
+
+volumes:
+    mysql_data:
+        driver: local

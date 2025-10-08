@@ -292,7 +292,8 @@ export class DockerManager {
      */
     async execInContainer(
         containerId: string,
-        command: string[]
+        command: string[],
+        options?: { outputFile?: string }
     ): Promise<string> {
         this.ensureDockerAvailable();
 
@@ -431,6 +432,260 @@ export class DockerManager {
                 "Failed to cleanup Docker resources",
                 "DOCKER_CLEANUP_ERROR",
                 { error }
+            );
+        }
+    }
+
+    /**
+     * Check if a specific service is running for a site
+     */
+    async isServiceRunning(
+        siteId: string,
+        serviceName: string
+    ): Promise<boolean> {
+        this.ensureDockerAvailable();
+
+        try {
+            const containerName = `${siteId}_${serviceName}`;
+            const containers = await this.getContainers(false); // Only running containers
+            return containers.some(
+                (container) => container.name === containerName
+            );
+        } catch (error) {
+            console.warn(
+                `Failed to check service status for ${serviceName}:`,
+                error
+            );
+            return false;
+        }
+    }
+
+    /**
+     * Stop a specific service for a site
+     */
+    async stopService(siteId: string, serviceName: string): Promise<void> {
+        this.ensureDockerAvailable();
+
+        try {
+            const containerName = `${siteId}_${serviceName}`;
+            await this.stopContainer(containerName);
+            console.log(`Stopped service ${serviceName} for site ${siteId}`);
+        } catch (error) {
+            throw new PressBoxError(
+                `Failed to stop service ${serviceName} for site ${siteId}`,
+                "DOCKER_STOP_SERVICE_ERROR",
+                { error, siteId, serviceName }
+            );
+        }
+    }
+
+    /**
+     * Stop all services for a site
+     */
+    async stopAllServices(siteId: string): Promise<void> {
+        this.ensureDockerAvailable();
+
+        try {
+            const containers = await this.getContainers(true);
+            const siteContainers = containers.filter(
+                (container) => container.labels["pressbox.site"] === siteId
+            );
+
+            for (const container of siteContainers) {
+                try {
+                    await this.stopContainer(container.id);
+                } catch (error) {
+                    console.warn(
+                        `Failed to stop container ${container.name}:`,
+                        error
+                    );
+                }
+            }
+
+            console.log(`Stopped all services for site ${siteId}`);
+        } catch (error) {
+            throw new PressBoxError(
+                `Failed to stop all services for site ${siteId}`,
+                "DOCKER_STOP_ALL_SERVICES_ERROR",
+                { error, siteId }
+            );
+        }
+    }
+
+    /**
+     * Start services using Docker Compose
+     */
+    async startCompose(composePath: string): Promise<void> {
+        this.ensureDockerAvailable();
+
+        const { spawn } = await import("child_process");
+
+        return new Promise((resolve, reject) => {
+            const compose = spawn("docker-compose", ["up", "-d"], {
+                cwd: composePath,
+                stdio: ["pipe", "pipe", "pipe"],
+            });
+
+            let stdout = "";
+            let stderr = "";
+
+            compose.stdout.on("data", (data) => {
+                stdout += data.toString();
+            });
+
+            compose.stderr.on("data", (data) => {
+                stderr += data.toString();
+            });
+
+            compose.on("close", (code) => {
+                if (code === 0) {
+                    console.log("Docker Compose started successfully");
+                    resolve();
+                } else {
+                    reject(
+                        new PressBoxError(
+                            `Docker Compose failed to start`,
+                            "DOCKER_COMPOSE_START_ERROR",
+                            { code, stdout, stderr, composePath }
+                        )
+                    );
+                }
+            });
+
+            compose.on("error", (error) => {
+                reject(
+                    new PressBoxError(
+                        `Failed to execute docker-compose`,
+                        "DOCKER_COMPOSE_EXEC_ERROR",
+                        { error, composePath }
+                    )
+                );
+            });
+        });
+    }
+
+    /**
+     * Restart services using Docker Compose
+     */
+    async restartCompose(composePath: string): Promise<void> {
+        this.ensureDockerAvailable();
+
+        const { spawn } = await import("child_process");
+
+        return new Promise((resolve, reject) => {
+            const compose = spawn("docker-compose", ["restart"], {
+                cwd: composePath,
+                stdio: ["pipe", "pipe", "pipe"],
+            });
+
+            let stdout = "";
+            let stderr = "";
+
+            compose.stdout.on("data", (data) => {
+                stdout += data.toString();
+            });
+
+            compose.stderr.on("data", (data) => {
+                stderr += data.toString();
+            });
+
+            compose.on("close", (code) => {
+                if (code === 0) {
+                    console.log("Docker Compose restarted successfully");
+                    resolve();
+                } else {
+                    reject(
+                        new PressBoxError(
+                            `Docker Compose failed to restart`,
+                            "DOCKER_COMPOSE_RESTART_ERROR",
+                            { code, stdout, stderr, composePath }
+                        )
+                    );
+                }
+            });
+
+            compose.on("error", (error) => {
+                reject(
+                    new PressBoxError(
+                        `Failed to execute docker-compose restart`,
+                        "DOCKER_COMPOSE_RESTART_EXEC_ERROR",
+                        { error, composePath }
+                    )
+                );
+            });
+        });
+    }
+
+    /**
+     * Check if a service is healthy
+     */
+    async checkServiceHealth(
+        siteId: string,
+        serviceName: string
+    ): Promise<boolean> {
+        this.ensureDockerAvailable();
+
+        try {
+            const containerName = `${siteId}_${serviceName}`;
+            const container = this.docker.getContainer(containerName);
+            const inspect = await container.inspect();
+
+            // Check if container is running
+            if (!inspect.State.Running) {
+                return false;
+            }
+
+            // Check health status if health check is defined
+            if (inspect.State.Health) {
+                return inspect.State.Health.Status === "healthy";
+            }
+
+            // If no health check, consider running = healthy
+            return true;
+        } catch (error) {
+            console.warn(
+                `Failed to check health for service ${serviceName}:`,
+                error
+            );
+            return false;
+        }
+    }
+
+    /**
+     * Update a service configuration
+     */
+    async updateService(
+        siteId: string,
+        serviceName: string,
+        config: any
+    ): Promise<void> {
+        this.ensureDockerAvailable();
+
+        try {
+            const containerName = `${siteId}_${serviceName}`;
+
+            // Stop the current container
+            await this.stopService(siteId, serviceName);
+
+            // Remove the container
+            await this.removeContainer(containerName, true);
+
+            // Create new container with updated config
+            const newContainer = await this.createContainer({
+                name: containerName,
+                image: config.image,
+                ...config,
+            });
+
+            // Start the new container
+            await this.startContainer(newContainer.id);
+
+            console.log(`Updated service ${serviceName} for site ${siteId}`);
+        } catch (error) {
+            throw new PressBoxError(
+                `Failed to update service ${serviceName} for site ${siteId}`,
+                "DOCKER_UPDATE_SERVICE_ERROR",
+                { error, siteId, serviceName, config }
             );
         }
     }

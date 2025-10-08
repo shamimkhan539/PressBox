@@ -1,19 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { CreateSiteModal } from '../components/CreateSiteModal.tsx';
 import { SiteDetailsModal } from '../components/SiteDetailsModal.tsx';
-import { TrashIcon } from '@heroicons/react/24/outline';
-
-interface WordPressSite {
-  id: string;
-  name: string;
-  status: 'running' | 'stopped' | 'starting' | 'stopping' | 'error';
-  domain: string;
-  path: string;
-  phpVersion?: string;
-  wordPressVersion?: string;
-  created?: Date;
-  port?: number;
-}
+import { ExportWizard, ImportWizard } from '../components';
+import { TrashIcon, CloudArrowUpIcon, CloudArrowDownIcon } from '@heroicons/react/24/outline';
+import { WordPressSite, SiteStatus } from '../../../shared/types';
 
 /**
  * Sites Page Component
@@ -53,6 +43,9 @@ export function Sites() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedSite, setSelectedSite] = useState<WordPressSite | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showExportWizard, setShowExportWizard] = useState(false);
+  const [showImportWizard, setShowImportWizard] = useState(false);
+  const [exportSite, setExportSite] = useState<WordPressSite | null>(null);
 
   const handleCreateSite = () => {
     setShowCreateModal(true);
@@ -105,7 +98,7 @@ export function Sites() {
   };
 
   const handleOpenSite = (site: WordPressSite) => {
-    if (site.status === 'running') {
+    if (site.status === SiteStatus.RUNNING) {
       const url = site.domain.startsWith('http') ? site.domain : `http://${site.domain}`;
       (window.electronAPI as any).shell.openExternal(url);
       
@@ -114,7 +107,7 @@ export function Sites() {
         setError(`Opened ${site.name} at ${url}. Note: This is a development version - full Docker integration will start actual WordPress sites.`);
         setTimeout(() => setError(null), 8000);
       }, 500);
-    } else if (site.status === 'stopped') {
+    } else if (site.status === SiteStatus.STOPPED) {
       setError(`Site "${site.name}" is stopped. Please start it first to access the website.`);
       setTimeout(() => setError(null), 5000);
     } else {
@@ -164,9 +157,18 @@ export function Sites() {
             Manage your local WordPress development sites
           </p>
         </div>
-        <button onClick={handleCreateSite} className="btn-primary">
-          + Create New Site
-        </button>
+        <div className="flex space-x-3">
+          <button onClick={handleCreateSite} className="btn-primary">
+            + Create New Site
+          </button>
+          <button 
+            onClick={() => setShowImportWizard(true)} 
+            className="btn-outline flex items-center space-x-2"
+          >
+            <CloudArrowDownIcon className="w-4 h-4" />
+            <span>Import Site</span>
+          </button>
+        </div>
       </div>
 
       {sites.length === 0 ? (
@@ -203,9 +205,9 @@ export function Sites() {
                   </p>
                 </div>
                 <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-                  site.status === 'running' ? 'status-running' : 
-                  site.status === 'stopped' ? 'status-stopped' :
-                  site.status === 'starting' ? 'status-starting' :
+                  site.status === SiteStatus.RUNNING ? 'status-running' : 
+                  site.status === SiteStatus.STOPPED ? 'status-stopped' :
+                  site.status === SiteStatus.STARTING ? 'status-starting' :
                   'status-error'
                 }`}>
                   {site.status}
@@ -237,7 +239,7 @@ export function Sites() {
               {/* Actions */}
               <div className="space-y-2">
                 <div className="flex space-x-2">
-                  {site.status === 'running' ? (
+                  {site.status === SiteStatus.RUNNING ? (
                     <>
                       <button
                         onClick={() => handleOpenSite(site)}
@@ -257,9 +259,9 @@ export function Sites() {
                     <button
                       onClick={() => handleSiteAction(site.id, 'start')}
                       className="btn-success flex-1 text-sm py-2"
-                      disabled={site.status === 'starting'}
+                      disabled={site.status === SiteStatus.STARTING}
                     >
-                      {site.status === 'starting' ? 'Starting...' : 'Start Site'}
+                      {site.status === SiteStatus.STARTING ? 'Starting...' : 'Start Site'}
                     </button>
                   )}
                   <button
@@ -270,15 +272,27 @@ export function Sites() {
                     <TrashIcon className="w-4 h-4" />
                   </button>
                 </div>
-                <button
-                  onClick={() => {
-                    setSelectedSite(site);
-                    setShowDetailsModal(true);
-                  }}
-                  className="btn-outline w-full text-sm py-2"
-                >
-                  View Details
-                </button>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => {
+                      setSelectedSite(site);
+                      setShowDetailsModal(true);
+                    }}
+                    className="btn-outline flex-1 text-sm py-2"
+                  >
+                    View Details
+                  </button>
+                  <button
+                    onClick={() => {
+                      setExportSite(site);
+                      setShowExportWizard(true);
+                    }}
+                    className="btn-outline px-3 py-2"
+                    title="Export Site"
+                  >
+                    <CloudArrowUpIcon className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -299,6 +313,34 @@ export function Sites() {
         onClose={() => {
           setShowDetailsModal(false);
           setSelectedSite(null);
+        }}
+      />
+
+      {/* Export Wizard */}
+      {exportSite && (
+        <ExportWizard
+          site={exportSite}
+          isOpen={showExportWizard}
+          onClose={() => {
+            setShowExportWizard(false);
+            setExportSite(null);
+          }}
+          onExportComplete={(result: any) => {
+            console.log('Export completed:', result);
+            setError(`Export completed successfully! File saved to: ${result.exportPath}`);
+            setExportSite(null);
+          }}
+        />
+      )}
+
+      {/* Import Wizard */}
+      <ImportWizard
+        isOpen={showImportWizard}
+        onClose={() => setShowImportWizard(false)}
+        onImportComplete={(result: any) => {
+          console.log('Import completed:', result);
+          setError(`Site "${result.siteName}" imported successfully!`);
+          loadSites(); // Refresh sites list
         }}
       />
     </div>

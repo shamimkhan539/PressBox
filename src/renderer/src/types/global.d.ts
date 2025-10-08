@@ -32,6 +32,16 @@ export interface ElectronAPI {
         openExternal: (url: string) => Promise<{ success: boolean }>;
         openPath: (path: string) => Promise<{ success: boolean }>;
     };
+
+    // Server Management
+    swapWebServer: (siteId: string, options: any) => Promise<any>;
+    changePHPVersion: (siteId: string, options: any) => Promise<any>;
+    updateSiteURL: (
+        siteId: string,
+        newUrl: string,
+        updateDatabase: boolean
+    ) => Promise<void>;
+    getServiceStats: (siteId: string, serviceName: string) => Promise<any>;
 }
 
 declare global {

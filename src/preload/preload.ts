@@ -45,6 +45,24 @@ export interface ElectronAPI {
         updateSettings: (pluginId: string, settings: any) => Promise<void>;
     };
 
+    // Blueprint Management
+    blueprints: {
+        getAll: () => Promise<any[]>;
+        getByCategory: (category: string) => Promise<any[]>;
+        get: (blueprintId: string) => Promise<any>;
+        createSite: (blueprintId: string, config: any) => Promise<any>;
+        saveCustom: (blueprint: any) => Promise<void>;
+        deleteCustom: (blueprintId: string) => Promise<void>;
+    };
+
+    // Export/Import Management
+    export: {
+        site: (siteId: string, options: any) => Promise<any>;
+        import: (filePath: string, options: any) => Promise<any>;
+        selectFile: () => Promise<string | null>;
+        selectDestination: (suggestedName?: string) => Promise<string | null>;
+    };
+
     // Application Settings
     settings: {
         get: (key: string) => Promise<any>;
@@ -67,6 +85,16 @@ export interface ElectronAPI {
         getPlatform: () => Promise<string>;
         getArchitecture: () => Promise<string>;
     };
+
+    // Server Management
+    swapWebServer: (siteId: string, options: any) => Promise<any>;
+    changePHPVersion: (siteId: string, options: any) => Promise<any>;
+    updateSiteURL: (
+        siteId: string,
+        newUrl: string,
+        updateDatabase: boolean
+    ) => Promise<void>;
+    getServiceStats: (siteId: string, serviceName: string) => Promise<any>;
 
     // Events
     on: (channel: string, callback: (...args: any[]) => void) => void;
@@ -165,6 +193,31 @@ const electronAPI: ElectronAPI = {
             ipcRenderer.invoke("plugins:update-settings", pluginId, settings),
     },
 
+    // Blueprint Management
+    blueprints: {
+        getAll: () => ipcRenderer.invoke("blueprints:get-all"),
+        getByCategory: (category) =>
+            ipcRenderer.invoke("blueprints:get-by-category", category),
+        get: (blueprintId) => ipcRenderer.invoke("blueprints:get", blueprintId),
+        createSite: (blueprintId, config) =>
+            ipcRenderer.invoke("blueprints:create-site", blueprintId, config),
+        saveCustom: (blueprint) =>
+            ipcRenderer.invoke("blueprints:save-custom", blueprint),
+        deleteCustom: (blueprintId) =>
+            ipcRenderer.invoke("blueprints:delete-custom", blueprintId),
+    },
+
+    // Export/Import Management
+    export: {
+        site: (siteId, options) =>
+            ipcRenderer.invoke("export:site", siteId, options),
+        import: (filePath, options) =>
+            ipcRenderer.invoke("export:import", filePath, options),
+        selectFile: () => ipcRenderer.invoke("export:select-file"),
+        selectDestination: (suggestedName) =>
+            ipcRenderer.invoke("export:select-destination", suggestedName),
+    },
+
     // Application Settings
     settings: {
         get: (key) => ipcRenderer.invoke("settings:get", key),
@@ -187,6 +240,21 @@ const electronAPI: ElectronAPI = {
         getPlatform: () => ipcRenderer.invoke("system:get-platform"),
         getArchitecture: () => ipcRenderer.invoke("system:get-architecture"),
     },
+
+    // Server Management
+    swapWebServer: (siteId, options) =>
+        ipcRenderer.invoke("server:swap-web-server", siteId, options),
+    changePHPVersion: (siteId, options) =>
+        ipcRenderer.invoke("server:change-php-version", siteId, options),
+    updateSiteURL: (siteId, newUrl, updateDatabase) =>
+        ipcRenderer.invoke(
+            "server:update-site-url",
+            siteId,
+            newUrl,
+            updateDatabase
+        ),
+    getServiceStats: (siteId, serviceName) =>
+        ipcRenderer.invoke("server:get-service-stats", siteId, serviceName),
 
     // Event Handling
     on: (channel, callback) => {

@@ -143,12 +143,16 @@ export class WordPressManager {
                 id: siteId,
                 name: siteName,
                 domain,
+                url: domain, // Set url same as domain for backward compatibility
                 path: sitePath,
                 phpVersion: request.phpVersion,
                 wordPressVersion: config.wordPressVersion || "latest",
+                webServer: config.webServer,
+                database: "mysql", // Default to MySQL
                 status: SiteStatus.STOPPED,
                 ssl: config.ssl,
                 multisite: config.multisite,
+                xdebug: false, // Default Xdebug off
                 created: new Date(),
                 config,
             };

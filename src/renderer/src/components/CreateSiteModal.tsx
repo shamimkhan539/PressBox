@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { XMarkIcon, ArrowLeftIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
 import { SiteTemplateSelector } from './SiteTemplateSelector';
+import { SiteBlueprintSelector } from './SiteBlueprintSelector';
 import { SiteTemplate } from '../data/siteTemplates';
 
 interface CreateSiteModalProps {
@@ -10,8 +11,10 @@ interface CreateSiteModalProps {
 }
 
 export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteModalProps) {
-  const [currentStep, setCurrentStep] = useState<'template' | 'configuration' | 'review'>('template');
+  const [creationMode, setCreationMode] = useState<'template' | 'blueprint'>('template');
+  const [currentStep, setCurrentStep] = useState<'mode' | 'template' | 'configuration' | 'review'>('mode');
   const [selectedTemplate, setSelectedTemplate] = useState<SiteTemplate | null>(null);
+  const [selectedBlueprint, setSelectedBlueprint] = useState<any>(null);
   const [formData, setFormData] = useState({
     name: '',
     domain: '',
@@ -20,6 +23,7 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
   });
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showBlueprintSelector, setShowBlueprintSelector] = useState(false);
 
   const handleTemplateSelect = (template: SiteTemplate) => {
     setSelectedTemplate(template);
@@ -30,8 +34,29 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
     }));
   };
 
+  const handleBlueprintSelect = (blueprint: any) => {
+    setSelectedBlueprint(blueprint);
+    if (blueprint) {
+      setFormData(prev => ({
+        ...prev,
+        phpVersion: blueprint.config?.phpVersion || '8.2',
+        wordPressVersion: blueprint.config?.wordpressVersion || 'latest'
+      }));
+    }
+    setShowBlueprintSelector(false);
+  };
+
+  const handleModeSelect = (mode: 'template' | 'blueprint') => {
+    setCreationMode(mode);
+    setCurrentStep('template');
+    setSelectedTemplate(null);
+    setSelectedBlueprint(null);
+  };
+
   const handleNext = () => {
-    if (currentStep === 'template' && selectedTemplate) {
+    if (currentStep === 'mode') {
+      setCurrentStep('template');
+    } else if (currentStep === 'template' && (selectedTemplate || selectedBlueprint)) {
       setCurrentStep('configuration');
     } else if (currentStep === 'configuration') {
       setCurrentStep('review');
@@ -39,7 +64,9 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
   };
 
   const handleBack = () => {
-    if (currentStep === 'configuration') {
+    if (currentStep === 'template') {
+      setCurrentStep('mode');
+    } else if (currentStep === 'configuration') {
       setCurrentStep('template');
     } else if (currentStep === 'review') {
       setCurrentStep('configuration');
@@ -48,7 +75,7 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name.trim() || !selectedTemplate) {
+    if (!formData.name.trim() || (!selectedTemplate && !selectedBlueprint)) {
       setError('Please complete all required fields');
       return;
     }
@@ -57,17 +84,30 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
       setCreating(true);
       setError(null);
 
-      const result = await window.electronAPI.sites.create({
-        name: formData.name.trim(),
-        domain: formData.domain.trim() || `${formData.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.local`,
-        phpVersion: formData.phpVersion,
-        wordPressVersion: formData.wordPressVersion,
-        template: selectedTemplate.id,
-        plugins: selectedTemplate.config.plugins,
-        themes: selectedTemplate.config.themes
-      });
+      let result;
 
-      if ((result as any).success) {
+      if (creationMode === 'blueprint' && selectedBlueprint) {
+        // Create site from blueprint
+        result = await window.electronAPI.blueprints.createSite(selectedBlueprint.id, {
+          name: formData.name.trim(),
+          domain: formData.domain.trim() || `${formData.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.local`,
+          phpVersion: formData.phpVersion,
+          wordPressVersion: formData.wordPressVersion
+        });
+      } else if (selectedTemplate) {
+        // Create site from template
+        result = await window.electronAPI.sites.create({
+          name: formData.name.trim(),
+          domain: formData.domain.trim() || `${formData.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.local`,
+          phpVersion: formData.phpVersion,
+          wordPressVersion: formData.wordPressVersion,
+          template: selectedTemplate.id,
+          plugins: selectedTemplate.config.plugins,
+          themes: selectedTemplate.config.themes
+        });
+      }
+
+      if ((result as any).success || result) {
         resetModal();
         onSiteCreated();
         onClose();
@@ -82,11 +122,14 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
   };
 
   const resetModal = () => {
-    setCurrentStep('template');
+    setCurrentStep('mode');
+    setCreationMode('template');
     setSelectedTemplate(null);
+    setSelectedBlueprint(null);
     setFormData({ name: '', domain: '', phpVersion: '8.2', wordPressVersion: 'latest' });
     setError(null);
     setCreating(false);
+    setShowBlueprintSelector(false);
   };
 
   const handleInputChange = (field: string, value: string) => {
@@ -146,17 +189,92 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
 
           {/* Step Content */}
           <div className="min-h-[400px]">
-            {/* Step 1: Template Selection */}
+            {/* Step 1: Mode Selection */}
+            {currentStep === 'mode' && (
+              <div className="space-y-6">
+                <div className="text-center">
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">Choose Creation Method</h3>
+                  <p className="text-sm text-gray-600">Select how you'd like to create your WordPress site</p>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <button
+                    onClick={() => handleModeSelect('template')}
+                    className="p-6 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left group"
+                  >
+                    <div className="flex items-center space-x-3 mb-3">
+                      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200">
+                        <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
+                      </div>
+                      <h4 className="font-medium text-gray-900">Basic Templates</h4>
+                    </div>
+                    <p className="text-sm text-gray-600">Choose from simple, pre-configured WordPress setups with common configurations.</p>
+                  </button>
+
+                  <button
+                    onClick={() => handleModeSelect('blueprint')}
+                    className="p-6 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left group"
+                  >
+                    <div className="flex items-center space-x-3 mb-3">
+                      <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center group-hover:bg-purple-200">
+                        <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </div>
+                      <h4 className="font-medium text-gray-900">Site Blueprints</h4>
+                    </div>
+                    <p className="text-sm text-gray-600">Advanced templates with plugins, themes, content, and custom configurations ready to use.</p>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Template Selection */}
             {currentStep === 'template' && (
               <div className="space-y-4">
-                <SiteTemplateSelector
-                  onSelectTemplate={handleTemplateSelect}
-                  selectedTemplate={selectedTemplate}
-                />
-                <div className="flex justify-end pt-4">
+                {creationMode === 'template' ? (
+                  <SiteTemplateSelector
+                    onSelectTemplate={handleTemplateSelect}
+                    selectedTemplate={selectedTemplate}
+                  />
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="max-w-md mx-auto">
+                      <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">Choose a Blueprint</h3>
+                      <p className="text-sm text-gray-600 mb-6">
+                        {selectedBlueprint 
+                          ? `Selected: ${selectedBlueprint.name}` 
+                          : 'Browse our collection of professional WordPress site blueprints with pre-installed themes, plugins, and content.'
+                        }
+                      </p>
+                      <button
+                        onClick={() => setShowBlueprintSelector(true)}
+                        className="btn-primary"
+                      >
+                        {selectedBlueprint ? 'Change Blueprint' : 'Browse Blueprints'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex justify-between pt-4">
+                  <button
+                    onClick={handleBack}
+                    className="btn-secondary flex items-center space-x-2"
+                  >
+                    <ArrowLeftIcon className="w-4 h-4" />
+                    <span>Back</span>
+                  </button>
                   <button
                     onClick={handleNext}
-                    disabled={!selectedTemplate}
+                    disabled={!selectedTemplate && !selectedBlueprint}
                     className="btn-primary flex items-center space-x-2"
                   >
                     <span>Continue</span>
@@ -342,6 +460,14 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
           </div>
         </div>
       </div>
+
+      {/* Blueprint Selector Modal */}
+      <SiteBlueprintSelector
+        isOpen={showBlueprintSelector}
+        onClose={() => setShowBlueprintSelector(false)}
+        onSelectBlueprint={handleBlueprintSelect}
+        selectedBlueprintId={selectedBlueprint?.id}
+      />
     </div>
   );
 }

@@ -10,12 +10,16 @@ export interface WordPressSite {
     id: string;
     name: string;
     domain: string;
+    url?: string; // For backward compatibility, typically same as domain
     path: string;
     phpVersion: string;
     wordPressVersion: string;
+    webServer: "nginx" | "apache"; // Current web server
+    database: "mysql" | "mariadb"; // Database type
     status: SiteStatus;
     ssl: boolean;
     multisite: boolean;
+    xdebug?: boolean; // Xdebug configuration
     created: Date;
     lastAccessed?: Date;
     port?: number;
@@ -63,6 +67,145 @@ export interface CreateSiteRequest {
     template?: string;
     plugins?: string[];
     themes?: string[];
+    blueprintId?: string; // Optional blueprint to use
+}
+
+// Site Blueprint System
+export interface SiteBlueprint {
+    id: string;
+    name: string;
+    description: string;
+    category: BlueprintCategory;
+    version: string;
+    author: string;
+    tags: string[];
+    thumbnail?: string; // Base64 or URL
+    isOfficial: boolean;
+    isCustom: boolean;
+    created: Date;
+    updated: Date;
+
+    // WordPress Configuration
+    config: BlueprintConfig;
+
+    // Included Files/Plugins
+    includes: BlueprintIncludes;
+
+    // Setup Instructions
+    setup: BlueprintSetup;
+}
+
+export enum BlueprintCategory {
+    BLOG = "blog",
+    BUSINESS = "business",
+    ECOMMERCE = "ecommerce",
+    PORTFOLIO = "portfolio",
+    LANDING_PAGE = "landing-page",
+    AGENCY = "agency",
+    EDUCATION = "education",
+    NONPROFIT = "nonprofit",
+    MAGAZINE = "magazine",
+    CUSTOM = "custom",
+}
+
+export interface BlueprintConfig {
+    // WordPress Settings
+    wordPressVersion?: string;
+    phpVersion: string;
+    webServer: "nginx" | "apache";
+    database: "mysql" | "mariadb";
+    ssl: boolean;
+    multisite: boolean;
+
+    // WordPress Configuration
+    wpConfig?: {
+        [key: string]: any; // Custom wp-config.php constants
+    };
+
+    // Site Settings
+    siteSettings?: {
+        blogname?: string;
+        blogdescription?: string;
+        start_of_week?: number;
+        use_balanceTags?: boolean;
+        default_category?: string;
+        default_post_format?: string;
+        timezone_string?: string;
+        date_format?: string;
+        time_format?: string;
+        permalink_structure?: string;
+    };
+
+    // User Settings
+    defaultUser?: {
+        username: string;
+        email: string;
+        displayName: string;
+        role: string;
+    };
+}
+
+export interface BlueprintIncludes {
+    // Plugins to install
+    plugins?: Array<{
+        slug: string;
+        name: string;
+        version?: string;
+        source: "wordpress.org" | "url" | "file";
+        url?: string;
+        activate: boolean;
+        settings?: any; // Plugin-specific settings
+    }>;
+
+    // Themes to install
+    themes?: Array<{
+        slug: string;
+        name: string;
+        version?: string;
+        source: "wordpress.org" | "url" | "file";
+        url?: string;
+        activate: boolean;
+        customizer?: any; // Theme customizer settings
+    }>;
+
+    // Content to import
+    content?: Array<{
+        type: "posts" | "pages" | "media" | "menus" | "widgets" | "customizer";
+        source: "file" | "url";
+        path?: string;
+        url?: string;
+        options?: any;
+    }>;
+
+    // Custom files to copy
+    files?: Array<{
+        source: string;
+        destination: string;
+        overwrite: boolean;
+    }>;
+}
+
+export interface BlueprintSetup {
+    // Setup steps
+    steps: Array<{
+        id: string;
+        name: string;
+        description: string;
+        type: "wordpress" | "plugin" | "theme" | "content" | "file" | "command";
+        action: string;
+        params?: any;
+        optional: boolean;
+        order: number;
+    }>;
+
+    // Post-setup instructions
+    postSetup?: {
+        instructions: string[];
+        links?: Array<{
+            title: string;
+            url: string;
+        }>;
+    };
 }
 
 // Docker Types
@@ -310,4 +453,40 @@ export class PluginError extends PressBoxError {
         super(message, "PLUGIN_ERROR", details);
         this.name = "PluginError";
     }
+}
+
+// Server Management Types
+export interface SwapServerOptions {
+    fromServer: "nginx" | "apache";
+    toServer: "nginx" | "apache";
+    preserveConfig: boolean;
+    migrateSslCerts: boolean;
+    backupConfigs: boolean;
+}
+
+export interface PHPVersionChangeOptions {
+    newVersion: string;
+    migrateExtensions: boolean;
+    preserveConfig: boolean;
+    restartServices: boolean;
+}
+
+export interface ServiceSwapResult {
+    success: boolean;
+    duration: number;
+    oldServer?: string;
+    newServer?: string;
+    oldVersion?: string;
+    newVersion?: string;
+    errors: string[];
+    warnings: string[];
+}
+
+export interface ServerStats {
+    uptime: string;
+    memory: string;
+    cpu: string;
+    requests: number;
+    responseTime: string;
+    errorRate: string;
 }

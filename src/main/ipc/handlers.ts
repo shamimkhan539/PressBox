@@ -3,6 +3,7 @@ import Store from "electron-store";
 import { WordPressManager } from "../services/wordpressManager";
 import { DockerManager } from "../services/dockerManager";
 import { PluginManager } from "../services/pluginManager";
+import { BlueprintManager } from "../services/blueprintManager";
 import { CreateSiteRequest } from "../../shared/types";
 
 /**
@@ -16,6 +17,7 @@ export class IPCHandlers {
         private wordpressManager: WordPressManager,
         private dockerManager: DockerManager,
         private pluginManager: PluginManager,
+        private blueprintManager: BlueprintManager,
         private store: Store
     ) {}
 
@@ -26,6 +28,7 @@ export class IPCHandlers {
         this.registerSiteHandlers();
         this.registerDockerHandlers();
         this.registerPluginHandlers();
+        this.registerBlueprintHandlers();
         this.registerSettingsHandlers();
         this.registerFileSystemHandlers();
         this.registerSystemHandlers();
@@ -272,6 +275,89 @@ export class IPCHandlers {
                     );
                 } catch (error) {
                     console.error("Failed to update plugin settings:", error);
+                    throw error;
+                }
+            }
+        );
+    }
+
+    /**
+     * Register blueprint system handlers
+     */
+    private registerBlueprintHandlers(): void {
+        ipcMain.handle("blueprints:get-all", async () => {
+            try {
+                return this.blueprintManager.getAllBlueprints();
+            } catch (error) {
+                console.error("Failed to get blueprints:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle(
+            "blueprints:get-by-category",
+            async (_, category: string) => {
+                try {
+                    return this.blueprintManager.getBlueprintsByCategory(
+                        category as any
+                    );
+                } catch (error) {
+                    console.error(
+                        "Failed to get blueprints by category:",
+                        error
+                    );
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle("blueprints:get", async (_, blueprintId: string) => {
+            try {
+                return this.blueprintManager.getBlueprint(blueprintId);
+            } catch (error) {
+                console.error("Failed to get blueprint:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle(
+            "blueprints:create-site",
+            async (_, blueprintId: string, config: any) => {
+                try {
+                    return await this.blueprintManager.createSiteFromBlueprint(
+                        blueprintId,
+                        config
+                    );
+                } catch (error) {
+                    console.error(
+                        "Failed to create site from blueprint:",
+                        error
+                    );
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle("blueprints:save-custom", async (_, blueprint: any) => {
+            try {
+                return await this.blueprintManager.saveCustomBlueprint(
+                    blueprint
+                );
+            } catch (error) {
+                console.error("Failed to save custom blueprint:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle(
+            "blueprints:delete-custom",
+            async (_, blueprintId: string) => {
+                try {
+                    return await this.blueprintManager.deleteCustomBlueprint(
+                        blueprintId
+                    );
+                } catch (error) {
+                    console.error("Failed to delete custom blueprint:", error);
                     throw error;
                 }
             }
