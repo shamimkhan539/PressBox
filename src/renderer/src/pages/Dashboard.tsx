@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CreateSiteModal } from '../components/CreateSiteModal.tsx';
 import { ImportSiteModal } from '../components/ImportSiteModal.tsx';
 import { SiteTemplateLibrary } from '../components/SiteTemplateLibrary.tsx';
+import { EnvironmentStatus } from '../components/EnvironmentStatus.tsx';
 import { 
   ChartBarIcon, 
   ServerIcon, 
@@ -21,7 +22,8 @@ import {
   PlayIcon,
   StopIcon,
   EyeIcon,
-  Cog8ToothIcon
+  Cog8ToothIcon,
+  ComputerDesktopIcon
 } from '@heroicons/react/24/outline';
 
 interface WordPressSite {
@@ -57,6 +59,7 @@ export function Dashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
+  const [showEnvironmentStatus, setShowEnvironmentStatus] = useState(false);
 
   const loadDashboardData = async () => {
     setLoading(true);
@@ -296,6 +299,20 @@ export function Dashboard() {
             </div>
             <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
           </button>
+
+          <button
+            onClick={() => setShowEnvironmentStatus(true)}
+            className="group relative overflow-hidden bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white p-6 rounded-xl shadow-lg transition-all duration-200 hover:shadow-xl hover:-translate-y-1"
+          >
+            <div className="relative z-10">
+              <ComputerDesktopIcon className="w-8 h-8 mb-3" />
+              <h3 className="font-semibold text-lg mb-2">System Status</h3>
+              <p className="text-sm text-teal-100 opacity-90">
+                Check Docker, PHP, and system requirements for development
+              </p>
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          </button>
         </div>
       </div>
 
@@ -460,6 +477,11 @@ export function Dashboard() {
           }}
         />
       )}
+      
+      <EnvironmentStatus
+        isVisible={showEnvironmentStatus}
+        onClose={() => setShowEnvironmentStatus(false)}
+      />
     </div>
   );
 }

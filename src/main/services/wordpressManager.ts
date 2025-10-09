@@ -3,6 +3,8 @@ import { promises as fs } from "fs";
 import { v4 as uuidv4 } from "uuid";
 import { spawn, ChildProcess } from "child_process";
 import { DockerManager } from "./dockerManager";
+import { LocalServerManager } from "./localServerManager";
+import { HostsFileService } from "./hostsFileService";
 import {
     WordPressSite,
     SiteStatus,
@@ -22,9 +24,12 @@ export class WordPressManager {
     private sites: Map<string, WordPressSite> = new Map();
     private sitesPath: string;
     private dockerManager: DockerManager;
+    private localServerManager: LocalServerManager;
+    private useDocker: boolean = false;
 
     constructor(dockerManager: DockerManager) {
         this.dockerManager = dockerManager;
+        this.localServerManager = new LocalServerManager();
         this.sitesPath = join(
             process.env.HOME || process.env.USERPROFILE || ".",
             "PressBox",
@@ -41,11 +46,22 @@ export class WordPressManager {
             // Ensure sites directory exists
             await fs.mkdir(this.sitesPath, { recursive: true });
 
+            // Check if Docker is available, otherwise use local server
+            try {
+                await this.dockerManager.initialize();
+                this.useDocker = true;
+                console.log("Using Docker for WordPress environments");
+            } catch (error) {
+                console.log("Docker not available, using local server manager");
+                this.useDocker = false;
+                await this.localServerManager.initialize();
+            }
+
             // Load existing sites
             await this.loadSites();
 
             console.log(
-                `WordPress Manager initialized with ${this.sites.size} sites`
+                `WordPress Manager initialized with ${this.sites.size} sites (${this.useDocker ? "Docker" : "Local"} mode)`
             );
         } catch (error) {
             console.error("Failed to initialize WordPress Manager:", error);
@@ -160,8 +176,30 @@ export class WordPressManager {
             // Save site configuration
             await this.saveSiteConfig(site);
 
-            // Create Docker containers
-            await this.createSiteContainers(site);
+            // Create site environment (Docker or Local)
+            if (this.useDocker) {
+                await this.createSiteContainers(site);
+            } else {
+                await this.createLocalSite(site);
+            }
+
+            // Register domain in hosts file
+            try {
+                await HostsFileService.addHostEntry({
+                    ip: "127.0.0.1",
+                    hostname: domain,
+                    comment: `PressBox WordPress Site - ${siteName} (Site ID: ${siteId})`,
+                    isWordPress: true,
+                    siteId: siteId,
+                });
+                console.log(`Registered domain ${domain} in hosts file`);
+            } catch (error) {
+                console.warn(
+                    `Failed to register domain ${domain} in hosts file:`,
+                    error
+                );
+                // Don't fail site creation if hosts file registration fails
+            }
 
             // Store site in memory
             this.sites.set(siteId, site);
@@ -189,14 +227,23 @@ export class WordPressManager {
             site.status = SiteStatus.STARTING;
             await this.saveSiteConfig(site);
 
-            // Start database container first
-            await this.dockerManager.startContainer(`${site.name}_db`);
+            if (this.useDocker) {
+                // Start database container first
+                await this.dockerManager.startContainer(`${site.name}_db`);
 
-            // Wait a bit for database to be ready
-            await this.sleep(3000);
+                // Wait a bit for database to be ready
+                await this.sleep(3000);
 
-            // Start web container
-            await this.dockerManager.startContainer(`${site.name}_web`);
+                // Start web container
+                await this.dockerManager.startContainer(`${site.name}_web`);
+            } else {
+                // Start local server
+                const server = await this.localServerManager.startSite(
+                    site.name
+                );
+                site.port = server.port;
+                site.url = server.url;
+            }
 
             site.status = SiteStatus.RUNNING;
             site.lastAccessed = new Date();
@@ -223,11 +270,16 @@ export class WordPressManager {
             site.status = SiteStatus.STOPPING;
             await this.saveSiteConfig(site);
 
-            // Stop web container first
-            await this.dockerManager.stopContainer(`${site.name}_web`);
+            if (this.useDocker) {
+                // Stop web container first
+                await this.dockerManager.stopContainer(`${site.name}_web`);
 
-            // Stop database container
-            await this.dockerManager.stopContainer(`${site.name}_db`);
+                // Stop database container
+                await this.dockerManager.stopContainer(`${site.name}_db`);
+            } else {
+                // Stop local server
+                await this.localServerManager.stopSite(site.name);
+            }
 
             site.status = SiteStatus.STOPPED;
             await this.saveSiteConfig(site);
@@ -261,6 +313,18 @@ export class WordPressManager {
 
             // Remove site directory
             await fs.rmdir(site.path, { recursive: true });
+
+            // Remove domain from hosts file
+            try {
+                await HostsFileService.removeHostEntry(site.domain);
+                console.log(`Removed domain ${site.domain} from hosts file`);
+            } catch (error) {
+                console.warn(
+                    `Failed to remove domain ${site.domain} from hosts file:`,
+                    error
+                );
+                // Don't fail site deletion if hosts file cleanup fails
+            }
 
             // Remove from memory
             this.sites.delete(siteId);
@@ -379,6 +443,38 @@ export class WordPressManager {
         } catch (error) {
             throw new SiteError(
                 `Failed to execute WP-CLI command in site '${site.name}'`,
+                error
+            );
+        }
+    }
+
+    /**
+     * Create local site (non-Docker)
+     */
+    private async createLocalSite(site: WordPressSite): Promise<void> {
+        try {
+            const localConfig = {
+                siteName: site.name,
+                domain: site.domain,
+                port: await this.findAvailablePort(8080),
+                phpVersion: site.phpVersion,
+                wordpressVersion: site.wordPressVersion,
+                sitePath: site.path,
+                dbName: site.config.dbName,
+            };
+
+            await this.localServerManager.createSite(localConfig);
+
+            // Update site with local server info
+            site.port = localConfig.port;
+            site.url = `http://localhost:${localConfig.port}`;
+
+            console.log(
+                `Created local site: ${site.name} on port ${localConfig.port}`
+            );
+        } catch (error) {
+            throw new SiteError(
+                `Failed to create local site '${site.name}'`,
                 error
             );
         }

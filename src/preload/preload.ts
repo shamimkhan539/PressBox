@@ -84,6 +84,32 @@ export interface ElectronAPI {
         getVersion: () => Promise<string>;
         getPlatform: () => Promise<string>;
         getArchitecture: () => Promise<string>;
+        checkAdmin: () => Promise<{
+            isAdmin: boolean;
+            canModifyHosts: boolean;
+            platform: string;
+            error?: string;
+        }>;
+        getElevationInstructions: () => Promise<{
+            windows: string[];
+            macos: string[];
+            linux: string[];
+        }>;
+        requestElevation: () => Promise<boolean>;
+        checkDocker: () => Promise<{
+            isInstalled: boolean;
+            isRunning: boolean;
+            version?: string;
+            error?: string;
+        }>;
+        checkPHP: () => Promise<{
+            isInstalled: boolean;
+            version?: string;
+            path?: string;
+            error?: string;
+        }>;
+        installPortablePHP: (installPath: string) => Promise<boolean>;
+        getPHPInstructions: () => Promise<string[]>;
     };
 
     // Server Management
@@ -283,6 +309,16 @@ const electronAPI: ElectronAPI = {
         getVersion: () => ipcRenderer.invoke("system:get-version"),
         getPlatform: () => ipcRenderer.invoke("system:get-platform"),
         getArchitecture: () => ipcRenderer.invoke("system:get-architecture"),
+        checkAdmin: () => ipcRenderer.invoke("system:check-admin"),
+        getElevationInstructions: () =>
+            ipcRenderer.invoke("system:get-elevation-instructions"),
+        requestElevation: () => ipcRenderer.invoke("system:request-elevation"),
+        checkDocker: () => ipcRenderer.invoke("system:check-docker"),
+        checkPHP: () => ipcRenderer.invoke("system:check-php"),
+        installPortablePHP: (installPath: string) =>
+            ipcRenderer.invoke("system:install-portable-php", installPath),
+        getPHPInstructions: () =>
+            ipcRenderer.invoke("system:get-php-instructions"),
     },
 
     // Server Management

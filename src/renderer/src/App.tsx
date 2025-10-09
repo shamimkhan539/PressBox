@@ -7,6 +7,7 @@ import { Plugins } from './pages/Plugins.tsx';
 import { Tools } from './pages/Tools.tsx';
 import { Settings } from './pages/Settings.tsx';
 import { NotificationProvider } from './components/NotificationSystem.tsx';
+import { AdminNotification } from './components/AdminNotification.tsx';
 import { cn } from './utils/cn.ts';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -105,6 +106,8 @@ const SiteProvider = ({ children }: { children: any }) => children;
  */
 function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [showAdminNotification, setShowAdminNotification] = useState(false);
+  const [hasCheckedAdmin, setHasCheckedAdmin] = useState(false);
 
   // Initialize theme from settings
   useEffect(() => {
@@ -125,6 +128,28 @@ function App() {
 
     initializeTheme();
   }, []);
+
+  // Check admin privileges on startup
+  useEffect(() => {
+    const checkAdminPrivileges = async () => {
+      if (hasCheckedAdmin) return;
+
+      try {
+        const adminStatus = await window.electronAPI.system.checkAdmin();
+        setHasCheckedAdmin(true);
+        
+        // Show notification if admin privileges are not available
+        if (!adminStatus.isAdmin || !adminStatus.canModifyHosts) {
+          setShowAdminNotification(true);
+        }
+      } catch (error) {
+        console.error('Failed to check admin privileges:', error);
+        setHasCheckedAdmin(true);
+      }
+    };
+
+    checkAdminPrivileges();
+  }, [hasCheckedAdmin]);
 
   // Apply theme to document
   useEffect(() => {
@@ -162,6 +187,12 @@ function App() {
             </main>
           </div>
         </SiteProvider>
+
+        {/* Admin Privilege Notification */}
+        <AdminNotification
+          isVisible={showAdminNotification}
+          onClose={() => setShowAdminNotification(false)}
+        />
       </NotificationProvider>
     </div>
   );

@@ -3,6 +3,28 @@ export interface ElectronAPI {
         getVersion: () => Promise<string>;
         getPlatform: () => Promise<string>;
         getArchitecture: () => Promise<string>;
+        checkAdmin: () => Promise<{
+            isAdmin: boolean;
+            canModifyHosts: boolean;
+            platform: string;
+            error?: string;
+        }>;
+        getElevationInstructions: () => Promise<string[]>;
+        requestElevation: () => Promise<{ success: boolean; error?: string }>;
+        checkDocker: () => Promise<{
+            isInstalled: boolean;
+            isRunning: boolean;
+            version?: string;
+            error?: string;
+        }>;
+        checkPHP: () => Promise<{
+            isInstalled: boolean;
+            version?: string;
+            path?: string;
+            error?: string;
+        }>;
+        installPortablePHP: (installPath: string) => Promise<boolean>;
+        getPHPInstructions: () => Promise<string[]>;
     };
 
     sites: {

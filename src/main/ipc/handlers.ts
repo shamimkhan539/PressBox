@@ -5,6 +5,9 @@ import { DockerManager } from "../services/dockerManager";
 import { PluginManager } from "../services/pluginManager";
 import { BlueprintManager } from "../services/blueprintManager";
 import { HostsFileService } from "../services/hostsFileService";
+import { AdminChecker } from "../services/adminChecker";
+import { PortablePHPManager } from "../services/portablePHPManager";
+import { WPCLIManager } from "../services/wpCliManager";
 import { CreateSiteRequest } from "../../shared/types";
 
 /**
@@ -477,6 +480,135 @@ export class IPCHandlers {
         ipcMain.handle("system:get-architecture", async () => {
             return process.arch;
         });
+
+        // Admin privilege checking
+        ipcMain.handle("system:check-admin", async () => {
+            try {
+                return await AdminChecker.checkAdminPrivileges();
+            } catch (error) {
+                console.error("Failed to check admin privileges:", error);
+                return {
+                    isAdmin: false,
+                    canModifyHosts: false,
+                    platform: process.platform,
+                    error: `Failed to check privileges: ${error}`,
+                };
+            }
+        });
+
+        ipcMain.handle("system:get-elevation-instructions", () => {
+            return AdminChecker.getElevationInstructions();
+        });
+
+        ipcMain.handle("system:request-elevation", async () => {
+            try {
+                return await AdminChecker.requestElevation();
+            } catch (error) {
+                console.error("Failed to request elevation:", error);
+                return false;
+            }
+        });
+
+        // Environment detection
+        ipcMain.handle("system:check-docker", async () => {
+            try {
+                return await this.dockerManager.isDockerRunning();
+            } catch (error) {
+                return false;
+            }
+        });
+
+        ipcMain.handle("system:check-php", async () => {
+            try {
+                // Check system PHP first via LocalServerManager
+                const phpInfo = await this.checkSystemPHP();
+                if (phpInfo.available) {
+                    return {
+                        isInstalled: true,
+                        version: phpInfo.version,
+                        path: phpInfo.path,
+                    };
+                }
+
+                // Check portable PHP
+                const portablePHP = PortablePHPManager.getInstance();
+                await portablePHP.initialize();
+
+                if (await portablePHP.isPortablePHPAvailable()) {
+                    const testResult = await portablePHP.testPortablePHP();
+                    if (testResult.success) {
+                        return {
+                            isInstalled: true,
+                            version: testResult.version || "Unknown",
+                            path: portablePHP.getPortablePHPPath() || "",
+                        };
+                    }
+                }
+
+                return { isInstalled: false, version: "", path: "" };
+            } catch (error) {
+                console.error("Error checking PHP:", error);
+                return { isInstalled: false, version: "", path: "" };
+            }
+        });
+
+        // Portable PHP management
+        ipcMain.handle(
+            "system:install-portable-php",
+            async (_, installPath: string) => {
+                try {
+                    const portablePHP = PortablePHPManager.getInstance();
+                    return await portablePHP.installPortablePHP(installPath);
+                } catch (error) {
+                    console.error("Error installing portable PHP:", error);
+                    return false;
+                }
+            }
+        );
+
+        ipcMain.handle("system:get-php-instructions", async () => {
+            const portablePHP = PortablePHPManager.getInstance();
+            return portablePHP.getInstallationInstructions();
+        });
+    }
+
+    /**
+     * Check system PHP installation
+     */
+    private async checkSystemPHP(): Promise<{
+        available: boolean;
+        version: string;
+        path: string;
+    }> {
+        try {
+            const { spawn } = await import("child_process");
+            const { promisify } = await import("util");
+            const execAsync = promisify(require("child_process").exec);
+
+            const phpCommands = ["php", "php.exe"];
+
+            for (const cmd of phpCommands) {
+                try {
+                    const { stdout } = await execAsync(`${cmd} --version`);
+                    const versionMatch = stdout.match(/PHP (\d+\.\d+\.\d+)/);
+
+                    if (versionMatch) {
+                        return {
+                            available: true,
+                            version: versionMatch[1],
+                            path: cmd,
+                        };
+                    }
+                } catch {
+                    // Continue to next command
+                }
+            }
+
+            return { available: false, version: "", path: "" };
+        } catch (error) {
+            console.error("Error checking system PHP:", error);
+            return { available: false, version: "", path: "" };
+        }
     }
 
     /**
