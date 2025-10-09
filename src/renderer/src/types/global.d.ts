@@ -64,6 +64,53 @@ export interface ElectronAPI {
         updateDatabase: boolean
     ) => Promise<void>;
     getServiceStats: (siteId: string, serviceName: string) => Promise<any>;
+
+    // Environment Management (Local vs Docker)
+    environment: {
+        getCapabilities: () => Promise<{
+            local: {
+                type: "local";
+                available: boolean;
+                preferred: boolean;
+                description: string;
+            };
+            docker: {
+                type: "docker";
+                available: boolean;
+                preferred: boolean;
+                description: string;
+            };
+        }>;
+        getCurrent: () => Promise<"local" | "docker">;
+        switch: (environment: "local" | "docker") => Promise<boolean>;
+        createSite: (config: any) => Promise<boolean>;
+        startSite: (
+            siteName: string,
+            environment?: "local" | "docker"
+        ) => Promise<boolean>;
+        stopSite: (
+            siteName: string,
+            environment?: "local" | "docker"
+        ) => Promise<boolean>;
+        deleteSite: (
+            siteName: string,
+            environment?: "local" | "docker"
+        ) => Promise<boolean>;
+        getAllSites: () => Promise<
+            Array<{
+                name: string;
+                environment: "local" | "docker";
+                status: string;
+                url: string;
+                config: any;
+            }>
+        >;
+        migrateSite: (
+            siteName: string,
+            fromEnvironment: "local" | "docker",
+            toEnvironment: "local" | "docker"
+        ) => Promise<boolean>;
+    };
 }
 
 declare global {

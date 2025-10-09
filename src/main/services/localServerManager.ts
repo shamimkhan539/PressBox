@@ -39,6 +39,7 @@ export interface LocalServer {
  * Works without Docker by using system PHP or portable PHP
  */
 export class LocalServerManager {
+    private static instance: LocalServerManager;
     private servers: Map<string, LocalServer> = new Map();
     private phpPath: string | null = null;
     private composerPath: string | null = null;
@@ -48,6 +49,13 @@ export class LocalServerManager {
     constructor() {
         this.sitesPath = path.join(os.homedir(), "PressBox", "sites");
         this.initialize();
+    }
+
+    public static getInstance(): LocalServerManager {
+        if (!LocalServerManager.instance) {
+            LocalServerManager.instance = new LocalServerManager();
+        }
+        return LocalServerManager.instance;
     }
 
     /**
@@ -80,7 +88,7 @@ export class LocalServerManager {
     /**
      * Detect system PHP installation
      */
-    private async detectPHP(): Promise<PHPInfo> {
+    public async detectPHP(): Promise<PHPInfo> {
         const phpCommands = ["php", "php.exe"];
 
         // First, try system PHP
@@ -136,7 +144,7 @@ export class LocalServerManager {
     /**
      * Create a new WordPress site locally
      */
-    async createSite(config: LocalServerConfig): Promise<void> {
+    async createSite(config: LocalServerConfig): Promise<boolean> {
         try {
             const sitePath = path.join(this.sitesPath, config.siteName);
 
@@ -156,10 +164,10 @@ export class LocalServerManager {
             await this.saveSiteConfig(sitePath, config);
 
             console.log(`Created WordPress site: ${config.siteName}`);
+            return true;
         } catch (error) {
-            throw new Error(
-                `Failed to create site ${config.siteName}: ${error}`
-            );
+            console.error(`Failed to create site ${config.siteName}:`, error);
+            return false;
         }
     }
 
@@ -200,14 +208,21 @@ export class LocalServerManager {
     /**
      * Stop a WordPress site server
      */
-    async stopSite(siteName: string): Promise<void> {
-        const server = this.servers.get(siteName);
+    async stopSite(siteName: string): Promise<boolean> {
+        try {
+            const server = this.servers.get(siteName);
 
-        if (server && server.process) {
-            server.process.kill();
-            server.status = "stopped";
-            this.servers.delete(siteName);
-            console.log(`Stopped site ${siteName}`);
+            if (server && server.process) {
+                server.process.kill();
+                server.status = "stopped";
+                this.servers.delete(siteName);
+                console.log(`Stopped site ${siteName}`);
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error(`Failed to stop site ${siteName}:`, error);
+            return false;
         }
     }
 
@@ -480,5 +495,83 @@ if ( ! isset( $wp_did_header ) ) {
      */
     async getPHPInfo(): Promise<PHPInfo> {
         return this.detectPHP();
+    }
+
+    /**
+     * Get all WordPress sites
+     */
+    async getSites(): Promise<
+        Array<{
+            name: string;
+            status: string;
+            url: string;
+            config: LocalServerConfig;
+        }>
+    > {
+        const sites: any[] = [];
+
+        try {
+            const siteDirectories = await fs.readdir(this.sitesPath);
+
+            for (const siteDir of siteDirectories) {
+                const sitePath = path.join(this.sitesPath, siteDir);
+                const stat = await fs.stat(sitePath);
+
+                if (stat.isDirectory()) {
+                    const configPath = path.join(sitePath, "pressbox.json");
+
+                    try {
+                        const configContent = await fs.readFile(
+                            configPath,
+                            "utf-8"
+                        );
+                        const config = JSON.parse(
+                            configContent
+                        ) as LocalServerConfig;
+                        const server = this.servers.get(config.siteName);
+
+                        sites.push({
+                            name: config.siteName,
+                            status: server ? server.status : "stopped",
+                            url: `http://${config.domain}:${config.port}`,
+                            config: config,
+                        });
+                    } catch (error) {
+                        // Invalid or missing config, skip
+                        console.warn(
+                            `Invalid site config for ${siteDir}:`,
+                            error
+                        );
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Failed to get sites:", error);
+        }
+
+        return sites;
+    }
+
+    /**
+     * Delete a WordPress site
+     */
+    async deleteSite(siteName: string): Promise<boolean> {
+        try {
+            // Stop the site first
+            await this.stopSite(siteName);
+
+            // Remove from servers map
+            this.servers.delete(siteName);
+
+            // Remove site directory
+            const sitePath = path.join(this.sitesPath, siteName);
+            await fs.rm(sitePath, { recursive: true, force: true });
+
+            console.log(`✅ Deleted site: ${siteName}`);
+            return true;
+        } catch (error) {
+            console.error(`Failed to delete site ${siteName}:`, error);
+            return false;
+        }
     }
 }

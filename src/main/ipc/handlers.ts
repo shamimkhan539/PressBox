@@ -8,6 +8,7 @@ import { HostsFileService } from "../services/hostsFileService";
 import { AdminChecker } from "../services/adminChecker";
 import { PortablePHPManager } from "../services/portablePHPManager";
 import { WPCLIManager } from "../services/wpCliManager";
+import { EnvironmentManager } from "../services/environmentManager";
 import { CreateSiteRequest } from "../../shared/types";
 
 /**
@@ -22,6 +23,7 @@ export class IPCHandlers {
         private dockerManager: DockerManager,
         private pluginManager: PluginManager,
         private blueprintManager: BlueprintManager,
+        private environmentManager: EnvironmentManager,
         private store: Store
     ) {}
 
@@ -37,6 +39,7 @@ export class IPCHandlers {
         this.registerFileSystemHandlers();
         this.registerSystemHandlers();
         this.registerHostsFileHandlers();
+        this.registerEnvironmentHandlers();
     }
 
     /**
@@ -745,5 +748,135 @@ export class IPCHandlers {
                 throw error;
             }
         });
+    }
+
+    /**
+     * Register environment management handlers
+     */
+    private registerEnvironmentHandlers(): void {
+        // Get environment capabilities
+        ipcMain.handle("environment:capabilities", async () => {
+            try {
+                return await this.environmentManager.getEnvironmentCapabilities();
+            } catch (error) {
+                console.error("Failed to get environment capabilities:", error);
+                throw error;
+            }
+        });
+
+        // Get current environment
+        ipcMain.handle("environment:current", async () => {
+            try {
+                return this.environmentManager.getCurrentEnvironment();
+            } catch (error) {
+                console.error("Failed to get current environment:", error);
+                throw error;
+            }
+        });
+
+        // Switch environment
+        ipcMain.handle(
+            "environment:switch",
+            async (_, environment: "local" | "docker") => {
+                try {
+                    return await this.environmentManager.switchEnvironment(
+                        environment
+                    );
+                } catch (error) {
+                    console.error("Failed to switch environment:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Create site with environment selection
+        ipcMain.handle("environment:create-site", async (_, config: any) => {
+            try {
+                return await this.environmentManager.createSite(config);
+            } catch (error) {
+                console.error("Failed to create site:", error);
+                throw error;
+            }
+        });
+
+        // Start site in appropriate environment
+        ipcMain.handle(
+            "environment:start-site",
+            async (_, siteName: string, environment?: "local" | "docker") => {
+                try {
+                    return await this.environmentManager.startSite(
+                        siteName,
+                        environment
+                    );
+                } catch (error) {
+                    console.error("Failed to start site:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Stop site in appropriate environment
+        ipcMain.handle(
+            "environment:stop-site",
+            async (_, siteName: string, environment?: "local" | "docker") => {
+                try {
+                    return await this.environmentManager.stopSite(
+                        siteName,
+                        environment
+                    );
+                } catch (error) {
+                    console.error("Failed to stop site:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Delete site from appropriate environment
+        ipcMain.handle(
+            "environment:delete-site",
+            async (_, siteName: string, environment?: "local" | "docker") => {
+                try {
+                    return await this.environmentManager.deleteSite(
+                        siteName,
+                        environment
+                    );
+                } catch (error) {
+                    console.error("Failed to delete site:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Get all sites from both environments
+        ipcMain.handle("environment:all-sites", async () => {
+            try {
+                return await this.environmentManager.getAllSites();
+            } catch (error) {
+                console.error("Failed to get all sites:", error);
+                throw error;
+            }
+        });
+
+        // Migrate site between environments
+        ipcMain.handle(
+            "environment:migrate-site",
+            async (
+                _,
+                siteName: string,
+                fromEnv: "local" | "docker",
+                toEnv: "local" | "docker"
+            ) => {
+                try {
+                    return await this.environmentManager.migrateSite(
+                        siteName,
+                        fromEnv,
+                        toEnv
+                    );
+                } catch (error) {
+                    console.error("Failed to migrate site:", error);
+                    throw error;
+                }
+            }
+        );
     }
 }

@@ -5,20 +5,47 @@ import {
     DockerService,
     PressBoxError,
 } from "../../shared/types";
+import { promises as fs } from "fs";
+import { join } from "path";
+import { LocalServerConfig } from "./localServerManager";
+
+export interface DockerWordPressConfig extends LocalServerConfig {
+    mysqlVersion: string;
+    phpVersion: string;
+    nginxEnabled: boolean;
+    sslEnabled: boolean;
+    volumes: string[];
+    environment: Record<string, string>;
+}
+
+export interface DockerEnvironment {
+    type: "local" | "docker";
+    available: boolean;
+    preferred: boolean;
+}
 
 /**
- * Docker Manager
+ * Enhanced Docker Manager
  *
  * Handles all Docker-related operations including container management,
- * image pulling, and Docker daemon communication.
+ * image pulling, Docker daemon communication, and WordPress-specific containers.
+ * Provides seamless integration with local development environment.
  */
 export class DockerManager {
     private docker: Docker;
     private isDockerAvailable: boolean = false;
+    private static instance: DockerManager;
 
     constructor() {
         // Initialize Docker client
         this.docker = new Docker();
+    }
+
+    public static getInstance(): DockerManager {
+        if (!DockerManager.instance) {
+            DockerManager.instance = new DockerManager();
+        }
+        return DockerManager.instance;
     }
 
     /**
@@ -688,5 +715,441 @@ export class DockerManager {
                 { error, siteId, serviceName, config }
             );
         }
+    }
+
+    /**
+     * Create WordPress Docker Environment
+     *
+     * Creates a complete WordPress development environment using Docker containers
+     * with WordPress, MySQL, and optional services like Redis, Nginx, etc.
+     */
+    async createWordPressSite(config: DockerWordPressConfig): Promise<boolean> {
+        this.ensureDockerAvailable();
+
+        try {
+            console.log(`Creating Docker WordPress site: ${config.siteName}`);
+
+            // Create Docker network for the site
+            const networkName = `pressbox_${config.siteName}`;
+            await this.createNetwork(networkName);
+
+            // Create MySQL container
+            const mysqlContainer = await this.createMySQLContainer(
+                config,
+                networkName
+            );
+
+            // Create WordPress container
+            const wpContainer = await this.createWordPressContainer(
+                config,
+                networkName
+            );
+
+            // Create Nginx container if enabled
+            if (config.nginxEnabled) {
+                await this.createNginxContainer(config, networkName);
+            }
+
+            // Start containers in order
+            await this.startContainer(mysqlContainer.id);
+            await this.waitForMySQL(mysqlContainer.id);
+            await this.startContainer(wpContainer.id);
+
+            console.log(`✅ Docker WordPress site created: ${config.siteName}`);
+            return true;
+        } catch (error) {
+            console.error(`❌ Failed to create Docker WordPress site:`, error);
+            throw new PressBoxError(
+                `Failed to create Docker WordPress site: ${config.siteName}`,
+                "DOCKER_WORDPRESS_CREATE_ERROR",
+                { error, config }
+            );
+        }
+    }
+
+    /**
+     * Create MySQL container for WordPress
+     */
+    private async createMySQLContainer(
+        config: DockerWordPressConfig,
+        networkName: string
+    ): Promise<Docker.Container> {
+        const containerName = `${config.siteName}_mysql`;
+
+        return await this.createContainer({
+            name: containerName,
+            image: `mysql:${config.mysqlVersion || "8.0"}`,
+            environment: [
+                `MYSQL_ROOT_PASSWORD=root`,
+                `MYSQL_DATABASE=${config.dbName}`,
+                `MYSQL_USER=wordpress`,
+                `MYSQL_PASSWORD=wordpress`,
+                ...Object.entries(config.environment || {}).map(
+                    ([key, value]) => `${key}=${value}`
+                ),
+            ],
+            ports: {
+                "3306/tcp": [{ HostPort: "3306" }],
+            },
+            volumes: [
+                `${config.siteName}_mysql_data:/var/lib/mysql`,
+                ...(config.volumes || []),
+            ],
+            labels: {
+                "pressbox.site": config.siteName,
+                "pressbox.service": "mysql",
+                "pressbox.managed": "true",
+            },
+        });
+    }
+
+    /**
+     * Create WordPress container
+     */
+    private async createWordPressContainer(
+        config: DockerWordPressConfig,
+        networkName: string
+    ): Promise<Docker.Container> {
+        const containerName = `${config.siteName}_wordpress`;
+
+        return await this.createContainer({
+            name: containerName,
+            image: `wordpress:${config.wordpressVersion || "latest"}`,
+            environment: [
+                `WORDPRESS_DB_HOST=${config.siteName}_mysql:3306`,
+                `WORDPRESS_DB_NAME=${config.dbName}`,
+                `WORDPRESS_DB_USER=wordpress`,
+                `WORDPRESS_DB_PASSWORD=wordpress`,
+                `WORDPRESS_DEBUG=1`,
+                ...Object.entries(config.environment || {}).map(
+                    ([key, value]) => `${key}=${value}`
+                ),
+            ],
+            ports: {
+                "80/tcp": [{ HostPort: config.port.toString() }],
+            },
+            volumes: [
+                `${config.sitePath}:/var/www/html`,
+                ...(config.volumes || []),
+            ],
+            labels: {
+                "pressbox.site": config.siteName,
+                "pressbox.service": "wordpress",
+                "pressbox.managed": "true",
+            },
+        });
+    }
+
+    /**
+     * Create Nginx container for SSL and advanced configurations
+     */
+    private async createNginxContainer(
+        config: DockerWordPressConfig,
+        networkName: string
+    ): Promise<Docker.Container> {
+        const containerName = `${config.siteName}_nginx`;
+
+        // Generate Nginx configuration
+        const nginxConfig = await this.generateNginxConfig(config);
+
+        return await this.createContainer({
+            name: containerName,
+            image: "nginx:alpine",
+            ports: {
+                "80/tcp": [{ HostPort: config.port.toString() }],
+                ...(config.sslEnabled
+                    ? { "443/tcp": [{ HostPort: "443" }] }
+                    : {}),
+            },
+            volumes: [
+                `${nginxConfig}:/etc/nginx/conf.d/default.conf:ro`,
+                `${config.sitePath}:/var/www/html:ro`,
+                ...(config.volumes || []),
+            ],
+            labels: {
+                "pressbox.site": config.siteName,
+                "pressbox.service": "nginx",
+                "pressbox.managed": "true",
+            },
+        });
+    }
+
+    /**
+     * Generate Nginx configuration for WordPress
+     */
+    private async generateNginxConfig(
+        config: DockerWordPressConfig
+    ): Promise<string> {
+        const nginxConf = `
+server {
+    listen 80;
+    server_name ${config.domain};
+    root /var/www/html;
+    index index.php index.html index.htm;
+
+    location / {
+        try_files $uri $uri/ /index.php?$args;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass ${config.siteName}_wordpress:9000;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+
+    location ~ /\.ht {
+        deny all;
+    }
+
+    ${
+        config.sslEnabled
+            ? `
+    # SSL Configuration
+    listen 443 ssl;
+    ssl_certificate /etc/ssl/certs/nginx-selfsigned.crt;
+    ssl_certificate_key /etc/ssl/private/nginx-selfsigned.key;
+    `
+            : ""
+    }
+}`;
+
+        const configPath = join(config.sitePath, "nginx.conf");
+        await fs.writeFile(configPath, nginxConf);
+        return configPath;
+    }
+
+    /**
+     * Create Docker network for site isolation
+     */
+    private async createNetwork(networkName: string): Promise<void> {
+        try {
+            const networks = await this.docker.listNetworks();
+            const existingNetwork = networks.find(
+                (network) => network.Name === networkName
+            );
+
+            if (!existingNetwork) {
+                await this.docker.createNetwork({
+                    Name: networkName,
+                    Driver: "bridge",
+                    Labels: {
+                        "pressbox.managed": "true",
+                    },
+                });
+                console.log(`✅ Created Docker network: ${networkName}`);
+            }
+        } catch (error) {
+            console.error(`Failed to create network ${networkName}:`, error);
+        }
+    }
+
+    /**
+     * Wait for MySQL to be ready
+     */
+    private async waitForMySQL(
+        containerId: string,
+        maxAttempts: number = 30
+    ): Promise<void> {
+        const container = this.docker.getContainer(containerId);
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                const exec = await container.exec({
+                    Cmd: ["mysqladmin", "ping", "-h", "localhost"],
+                    AttachStdout: true,
+                    AttachStderr: true,
+                });
+
+                const stream = await exec.start({ hijack: true, stdin: false });
+
+                // Wait for command to complete
+                await new Promise((resolve, reject) => {
+                    let output = "";
+                    stream.on("data", (data) => {
+                        output += data.toString();
+                    });
+                    stream.on("end", () => {
+                        if (output.includes("mysqld is alive")) {
+                            resolve(true);
+                        } else {
+                            reject(new Error("MySQL not ready"));
+                        }
+                    });
+                });
+
+                console.log(`✅ MySQL is ready (attempt ${attempt})`);
+                return;
+            } catch (error) {
+                console.log(
+                    `⏳ Waiting for MySQL... (attempt ${attempt}/${maxAttempts})`
+                );
+                if (attempt === maxAttempts) {
+                    throw new Error(
+                        "MySQL failed to start within timeout period"
+                    );
+                }
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+        }
+    }
+
+    /**
+     * Get environment capabilities
+     */
+    async getEnvironmentCapabilities(): Promise<{
+        local: DockerEnvironment;
+        docker: DockerEnvironment;
+    }> {
+        const dockerAvailable = await this.isDockerRunning();
+
+        return {
+            local: {
+                type: "local",
+                available: true, // Local environment is always available
+                preferred: !dockerAvailable, // Prefer local if Docker not available
+            },
+            docker: {
+                type: "docker",
+                available: dockerAvailable,
+                preferred: dockerAvailable, // Prefer Docker if available
+            },
+        };
+    }
+
+    /**
+     * Clean up Docker resources for a site
+     */
+    async cleanupSite(siteName: string): Promise<void> {
+        try {
+            // Stop and remove containers
+            const containers = await this.getContainers(true);
+            const siteContainers = containers.filter(
+                (container) => container.labels["pressbox.site"] === siteName
+            );
+
+            for (const container of siteContainers) {
+                await this.stopContainer(container.id);
+                await this.removeContainer(container.id, true);
+            }
+
+            // Remove volumes
+            const volumes = await this.docker.listVolumes();
+            const siteVolumes = volumes.Volumes?.filter((volume) =>
+                volume.Name.startsWith(`${siteName}_`)
+            );
+
+            for (const volume of siteVolumes || []) {
+                try {
+                    const dockerVolume = this.docker.getVolume(volume.Name);
+                    await dockerVolume.remove();
+                } catch (error) {
+                    console.warn(
+                        `Failed to remove volume ${volume.Name}:`,
+                        error
+                    );
+                }
+            }
+
+            // Remove network
+            const networkName = `pressbox_${siteName}`;
+            try {
+                const network = this.docker.getNetwork(networkName);
+                await network.remove();
+            } catch (error) {
+                console.warn(`Failed to remove network ${networkName}:`, error);
+            }
+
+            console.log(`✅ Cleaned up Docker resources for site: ${siteName}`);
+        } catch (error) {
+            console.error(`Failed to cleanup Docker site ${siteName}:`, error);
+        }
+    }
+
+    /**
+     * Start a WordPress site
+     */
+    async startSite(siteName: string): Promise<boolean> {
+        try {
+            const containers = await this.getContainers(true);
+            const siteContainers = containers.filter(
+                (container) => container.labels["pressbox.site"] === siteName
+            );
+
+            for (const container of siteContainers) {
+                await this.startContainer(container.id);
+            }
+
+            console.log(`✅ Started Docker site: ${siteName}`);
+            return true;
+        } catch (error) {
+            console.error(`Failed to start Docker site ${siteName}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Stop a WordPress site
+     */
+    async stopSite(siteName: string): Promise<boolean> {
+        try {
+            const containers = await this.getContainers(true);
+            const siteContainers = containers.filter(
+                (container) => container.labels["pressbox.site"] === siteName
+            );
+
+            for (const container of siteContainers) {
+                await this.stopContainer(container.id);
+            }
+
+            console.log(`✅ Stopped Docker site: ${siteName}`);
+            return true;
+        } catch (error) {
+            console.error(`Failed to stop Docker site ${siteName}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Get all WordPress sites from Docker
+     */
+    async getSites(): Promise<
+        Array<{
+            name: string;
+            status: string;
+            url: string;
+            config: any;
+        }>
+    > {
+        const sites: any[] = [];
+
+        try {
+            const containers = await this.getContainers(true);
+            const wpContainers = containers.filter(
+                (container) =>
+                    container.labels["pressbox.service"] === "wordpress"
+            );
+
+            for (const container of wpContainers) {
+                const siteName = container.labels["pressbox.site"];
+                if (siteName) {
+                    sites.push({
+                        name: siteName,
+                        status: container.status.includes("Up")
+                            ? "running"
+                            : "stopped",
+                        url: `http://localhost:${container.ports.find((p) => p.container === 80)?.host || 80}`,
+                        config: {
+                            siteName,
+                            containerName: container.name,
+                            image: container.image,
+                        },
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("Failed to get Docker sites:", error);
+        }
+
+        return sites;
     }
 }

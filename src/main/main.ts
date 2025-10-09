@@ -7,6 +7,7 @@ import { DockerManager } from "./services/dockerManager";
 import { PluginManager } from "./services/pluginManager";
 import { ExportManager } from "./services/exportManager";
 import { BlueprintManager } from "./services/blueprintManager";
+import { EnvironmentManager } from "./services/environmentManager";
 import { IPCHandlers } from "./ipc/handlers";
 import { createApplicationMenu } from "./menu";
 
@@ -26,14 +27,16 @@ class PressBoxApp {
     private pluginManager: PluginManager;
     private exportManager: ExportManager;
     private blueprintManager: BlueprintManager;
+    private environmentManager: EnvironmentManager;
     private ipcHandlers: IPCHandlers;
 
     constructor() {
         this.store = new Store();
-        this.dockerManager = new DockerManager();
+        this.dockerManager = DockerManager.getInstance();
         this.wordPressManager = new WordPressManager(this.dockerManager);
         this.pluginManager = new PluginManager();
         this.exportManager = new ExportManager(this.dockerManager);
+        this.environmentManager = EnvironmentManager.getInstance();
         this.blueprintManager = new BlueprintManager(
             this.dockerManager,
             this.wordPressManager
@@ -43,6 +46,7 @@ class PressBoxApp {
             this.dockerManager,
             this.pluginManager,
             this.blueprintManager,
+            this.environmentManager,
             this.store
         );
 
@@ -59,7 +63,7 @@ class PressBoxApp {
         this.setupAutoUpdater();
 
         // Initialize services
-        await this.dockerManager.initialize();
+        await this.environmentManager.initialize();
         await this.pluginManager.loadPlugins();
 
         // Handle window management

@@ -155,6 +155,64 @@ export interface ElectronAPI {
         }>;
     };
 
+    // Environment Management (Local vs Docker)
+    environment: {
+        getCapabilities: () => Promise<{
+            local: {
+                type: "local";
+                available: boolean;
+                preferred: boolean;
+                description: string;
+            };
+            docker: {
+                type: "docker";
+                available: boolean;
+                preferred: boolean;
+                description: string;
+            };
+        }>;
+        getCurrent: () => Promise<"local" | "docker">;
+        switch: (environment: "local" | "docker") => Promise<boolean>;
+        createSite: (
+            config: CreateSiteConfig & {
+                environment?: "local" | "docker";
+                dockerOptions?: {
+                    mysqlVersion?: string;
+                    nginxEnabled?: boolean;
+                    sslEnabled?: boolean;
+                    volumes?: string[];
+                    environment?: Record<string, string>;
+                };
+            }
+        ) => Promise<boolean>;
+        startSite: (
+            siteName: string,
+            environment?: "local" | "docker"
+        ) => Promise<boolean>;
+        stopSite: (
+            siteName: string,
+            environment?: "local" | "docker"
+        ) => Promise<boolean>;
+        deleteSite: (
+            siteName: string,
+            environment?: "local" | "docker"
+        ) => Promise<boolean>;
+        getAllSites: () => Promise<
+            Array<{
+                name: string;
+                environment: "local" | "docker";
+                status: string;
+                url: string;
+                config: any;
+            }>
+        >;
+        migrateSite: (
+            siteName: string,
+            fromEnvironment: "local" | "docker",
+            toEnvironment: "local" | "docker"
+        ) => Promise<boolean>;
+    };
+
     // Events
     on: (channel: string, callback: (...args: any[]) => void) => void;
     off: (channel: string, callback: (...args: any[]) => void) => void;
@@ -350,6 +408,34 @@ const electronAPI: ElectronAPI = {
         restore: () => ipcRenderer.invoke("hosts:restore"),
         checkAdmin: () => ipcRenderer.invoke("hosts:check-admin"),
         getStats: () => ipcRenderer.invoke("hosts:stats"),
+    },
+
+    // Environment Management (Local vs Docker)
+    environment: {
+        getCapabilities: () => ipcRenderer.invoke("environment:capabilities"),
+        getCurrent: () => ipcRenderer.invoke("environment:current"),
+        switch: (environment) =>
+            ipcRenderer.invoke("environment:switch", environment),
+        createSite: (config) =>
+            ipcRenderer.invoke("environment:create-site", config),
+        startSite: (siteName, environment) =>
+            ipcRenderer.invoke("environment:start-site", siteName, environment),
+        stopSite: (siteName, environment) =>
+            ipcRenderer.invoke("environment:stop-site", siteName, environment),
+        deleteSite: (siteName, environment) =>
+            ipcRenderer.invoke(
+                "environment:delete-site",
+                siteName,
+                environment
+            ),
+        getAllSites: () => ipcRenderer.invoke("environment:all-sites"),
+        migrateSite: (siteName, fromEnvironment, toEnvironment) =>
+            ipcRenderer.invoke(
+                "environment:migrate-site",
+                siteName,
+                fromEnvironment,
+                toEnvironment
+            ),
     },
 
     // Event Handling

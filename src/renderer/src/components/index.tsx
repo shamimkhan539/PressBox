@@ -57,3 +57,7 @@ export { WPCLITerminal } from './WPCLITerminal';
 export { SiteTemplateSelector } from './SiteTemplateSelector';
 export { DatabaseBrowser } from './DatabaseBrowser';
 export { HostsManager } from './HostsManager';
+export { EnvironmentSelector } from './EnvironmentSelector';
+export { SitePerformanceMonitor as AdvancedPerformanceMonitor } from './AdvancedPerformanceMonitor';
+export { SiteAnalytics } from './SiteAnalytics';
+export { AdvancedSiteManagement } from './AdvancedSiteManagement';
