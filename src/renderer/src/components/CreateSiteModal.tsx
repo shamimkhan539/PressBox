@@ -18,6 +18,7 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
   const [formData, setFormData] = useState({
     name: '',
     domain: '',
+    databaseName: '',
     phpVersion: '8.2',
     wordPressVersion: 'latest'
   });
@@ -126,14 +127,37 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
     setCreationMode('template');
     setSelectedTemplate(null);
     setSelectedBlueprint(null);
-    setFormData({ name: '', domain: '', phpVersion: '8.2', wordPressVersion: 'latest' });
+    setFormData({ name: '', domain: '', databaseName: '', phpVersion: '8.2', wordPressVersion: 'latest' });
     setError(null);
     setCreating(false);
     setShowBlueprintSelector(false);
   };
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData(prev => {
+      const newData = {
+        ...prev,
+        [field]: value
+      };
+      
+      // Auto-generate database name and domain when site name changes
+      if (field === 'name' && value) {
+        const sanitized = value.toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '') // Remove special characters
+          .replace(/\s+/g, '_') // Replace spaces with underscores
+          .substring(0, 20); // Limit length
+        
+        if (!prev.databaseName || prev.databaseName.startsWith(prev.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_').substring(0, 20))) {
+          newData.databaseName = `wp_${sanitized}`;
+        }
+        
+        if (!prev.domain || prev.domain.startsWith(prev.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '-').substring(0, 20))) {
+          newData.domain = `${sanitized.replace(/_/g, '-')}.local`;
+        }
+      }
+      
+      return newData;
+    });
     if (error) setError(null);
   };
 
@@ -291,7 +315,7 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
                   <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
                     Site Configuration
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {/* Site Name */}
                     <div>
                       <label className="form-label">Site Name *</label>
@@ -317,6 +341,23 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
                         placeholder="mysite.local"
                         disabled={creating}
                       />
+                    </div>
+
+                    {/* Database Name */}
+                    <div>
+                      <label className="form-label">Database Name *</label>
+                      <input
+                        type="text"
+                        value={formData.databaseName}
+                        onChange={(e) => handleInputChange('databaseName', e.target.value)}
+                        className="form-input"
+                        placeholder="wp_mysite"
+                        disabled={creating}
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        MySQL database name (auto-generated from site name)
+                      </p>
                     </div>
 
                     {/* PHP Version */}

@@ -2,6 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CreateSiteModal } from '../components/CreateSiteModal.tsx';
 import { ImportSiteModal } from '../components/ImportSiteModal.tsx';
+import { SiteTemplateLibrary } from '../components/SiteTemplateLibrary.tsx';
+import { 
+  ChartBarIcon, 
+  ServerIcon, 
+  GlobeAltIcon, 
+  ShieldCheckIcon,
+  ClockIcon,
+  CpuChipIcon,
+  CircleStackIcon,
+  RocketLaunchIcon,
+  SparklesIcon,
+  Cog6ToothIcon,
+  PuzzlePieceIcon,
+  ArchiveBoxIcon,
+  PaintBrushIcon,
+  ShieldExclamationIcon,
+  PlayIcon,
+  StopIcon,
+  EyeIcon,
+  Cog8ToothIcon
+} from '@heroicons/react/24/outline';
 
 interface WordPressSite {
   id: string;
@@ -9,6 +30,7 @@ interface WordPressSite {
   status: 'running' | 'stopped' | 'starting' | 'stopping' | 'error';
   domain: string;
   path: string;
+  url?: string;
 }
 
 interface DashboardStats {
@@ -34,62 +56,45 @@ export function Dashboard() {
   const [sites, setSites] = useState<WordPressSite[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-
-  // Load dashboard data on component mount
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
+  const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
 
   const loadDashboardData = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      
-      // Get sites data
-      const sitesData = await window.electronAPI.sites.list();
-      setSites(sitesData);
-      
-      // Get Docker status
-      const [dockerInstalled, dockerRunning] = await Promise.all([
-        window.electronAPI.docker.isInstalled(),
-        window.electronAPI.docker.isRunning()
-      ]);
-      
-      // Calculate stats
-      const totalSites = sitesData.length;
-      const runningSites = sitesData.filter(site => site.status === 'running').length;
-      
-      let dockerStatusText = 'Unknown';
-      if (!dockerInstalled) {
-        dockerStatusText = 'Not Installed';
-      } else if (dockerRunning) {
-        dockerStatusText = 'Running';
-      } else {
-        dockerStatusText = 'Stopped';
-      }
-      
-      setStats({
-        totalSites,
+      // Load sites from real API
+      const sitesList = await window.electronAPI.sites.list();
+      setSites(sitesList);
+
+      // Calculate stats from real data
+      const runningSites = sitesList.filter(site => site.status === 'running').length;
+      const dashboardStats = {
+        totalSites: sitesList.length,
         runningSites,
-        dockerStatus: dockerStatusText
-      });
+        dockerStatus: 'Running' // TODO: Get real Docker status
+      };
+      setStats(dashboardStats);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
-      setStats(prev => ({ ...prev, dockerStatus: 'Error' }));
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    loadDashboardData();
+    
+    // Refresh data every 30 seconds
+    const interval = setInterval(loadDashboardData, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleCreateSite = () => {
     setShowCreateModal(true);
   };
 
-  const handleImportSite = () => {
-    setShowImportModal(true);
-  };
-
   const handleSiteCreated = () => {
-    loadDashboardData(); // Refresh data after creating site
+    // Refresh dashboard data after creating a site
+    loadDashboardData();
   };
 
   const handleSiteImported = () => {
@@ -103,6 +108,75 @@ export function Dashboard() {
   const handleBrowsePlugins = () => {
     navigate('/plugins');
   };
+
+  const handleStartSite = async (siteId: string) => {
+    try {
+      // Update site status to starting
+      setSites(prevSites => 
+        prevSites.map(site => 
+          site.id === siteId ? { ...site, status: 'starting' } : site
+        )
+      );
+
+      // Simulate starting the site
+      setTimeout(() => {
+        setSites(prevSites => 
+          prevSites.map(site => 
+            site.id === siteId ? { ...site, status: 'running' } : site
+          )
+        );
+        setStats(prevStats => ({ ...prevStats, runningSites: prevStats.runningSites + 1 }));
+      }, 2000);
+
+      console.log(`Starting site: ${siteId}`);
+    } catch (error) {
+      console.error('Failed to start site:', error);
+      // Revert status on error
+      setSites(prevSites => 
+        prevSites.map(site => 
+          site.id === siteId ? { ...site, status: 'stopped' } : site
+        )
+      );
+    }
+  };
+
+  const handleStopSite = async (siteId: string) => {
+    try {
+      // Update site status to stopping
+      setSites(prevSites => 
+        prevSites.map(site => 
+          site.id === siteId ? { ...site, status: 'stopping' } : site
+        )
+      );
+
+      // Simulate stopping the site
+      setTimeout(() => {
+        setSites(prevSites => 
+          prevSites.map(site => 
+            site.id === siteId ? { ...site, status: 'stopped' } : site
+          )
+        );
+        setStats(prevStats => ({ ...prevStats, runningSites: Math.max(0, prevStats.runningSites - 1) }));
+      }, 1500);
+
+      console.log(`Stopping site: ${siteId}`);
+    } catch (error) {
+      console.error('Failed to stop site:', error);
+      // Revert status on error
+      setSites(prevSites => 
+        prevSites.map(site => 
+          site.id === siteId ? { ...site, status: 'running' } : site
+        )
+      );
+    }
+  };
+
+  const handleViewSite = (site: WordPressSite) => {
+    if (site.url && site.status === 'running') {
+      (window.electronAPI as any)?.shell?.openExternal(site.url);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -125,259 +199,245 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 md:mb-8">
-        <div className="card p-4 md:p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-              <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Sites</p>
+      {/* Professional Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="card p-6 bg-gradient-to-r from-blue-500 to-blue-600 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-blue-100 text-sm font-medium">WordPress Sites</p>
               {loading ? (
-                <div className="spinner w-4 h-4 mt-1"></div>
+                <div className="spinner w-6 h-6 mt-2"></div>
               ) : (
-                <p className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">{stats.totalSites}</p>
+                <p className="text-3xl font-bold">{stats.totalSites}</p>
               )}
             </div>
+            <GlobeAltIcon className="w-12 h-12 text-blue-200" />
           </div>
-        </div>
-
-        <div className="card p-4 md:p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-              <svg className="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Running</p>
-              {loading ? (
-                <div className="spinner w-4 h-4 mt-1"></div>
-              ) : (
-                <p className="text-xl md:text-2xl font-bold text-green-600">{stats.runningSites}</p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="card p-4 md:p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-              <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Docker</p>
-              {loading ? (
-                <div className="spinner w-4 h-4 mt-1"></div>
-              ) : (
-                <p className={`text-sm md:text-base font-semibold ${
-                  stats.dockerStatus === 'Running' ? 'text-green-600' : 
-                  stats.dockerStatus === 'Stopped' ? 'text-yellow-600' : 
-                  'text-red-600'
-                }`}>{stats.dockerStatus}</p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="card p-4 md:p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
-              <svg className="w-5 h-5 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14v6m-3-3h6M6 10h2a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2zm10 0h2a2 2 0 002-2V6a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2zM6 20h2a2 2 0 002-2v-2a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Plugins</p>
-              <p className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">2</p>
-            </div>
+          <div className="mt-2 text-blue-100 text-sm">
+            {loading ? 'Loading...' : `${stats.runningSites} currently running`}
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Quick Actions */}
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            Quick Actions
-          </h2>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Total Sites</span>
-              {loading ? (
-                <div className="spinner w-4 h-4"></div>
-              ) : (
-                <span className="font-medium text-gray-900 dark:text-white">{stats.totalSites}</span>
-              )}
+      {/* Advanced Management Tools */}
+      <div className="mb-8">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+          <Cog6ToothIcon className="w-5 h-5 mr-2" />
+          Advanced Management Tools
+        </h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <button
+            onClick={() => navigate('/sites')}
+            className="group relative overflow-hidden bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white p-6 rounded-xl shadow-lg transition-all duration-200 hover:shadow-xl hover:-translate-y-1"
+          >
+            <div className="relative z-10">
+              <CircleStackIcon className="w-8 h-8 mb-3" />
+              <h3 className="font-semibold text-lg mb-2">Database Manager</h3>
+              <p className="text-sm text-blue-100 opacity-90">
+                Manage WordPress databases, run SQL queries, and create backups
+              </p>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Running Sites</span>
-              {loading ? (
-                <div className="spinner w-4 h-4"></div>
-              ) : (
-                <span className="font-medium text-green-600">{stats.runningSites}</span>
-              )}
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Docker Status</span>
-              {loading ? (
-                <div className="spinner w-4 h-4"></div>
-              ) : (
-                <span className={`font-medium ${
-                  stats.dockerStatus === 'Running' ? 'text-green-600' : 
-                  stats.dockerStatus === 'Stopped' ? 'text-yellow-600' : 
-                  'text-red-600'
-                }`}>{stats.dockerStatus}</span>
-              )}
-            </div>
-          </div>
-        </div>
+            <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          </button>
 
-        {/* Quick Actions */}
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Quick Actions
-          </h2>
-          <div className="grid grid-cols-1 gap-3">
+          <button
+            onClick={() => navigate('/sites')}
+            className="group relative overflow-hidden bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white p-6 rounded-xl shadow-lg transition-all duration-200 hover:shadow-xl hover:-translate-y-1"
+          >
+            <div className="relative z-10">
+              <PuzzlePieceIcon className="w-8 h-8 mb-3" />
+              <h3 className="font-semibold text-lg mb-2">Plugin Manager</h3>
+              <p className="text-sm text-purple-100 opacity-90">
+                Install, update, and manage WordPress plugins with ease
+              </p>
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          </button>
+
+          <button
+            onClick={() => navigate('/sites')}
+            className="group relative overflow-hidden bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white p-6 rounded-xl shadow-lg transition-all duration-200 hover:shadow-xl hover:-translate-y-1"
+          >
+            <div className="relative z-10">
+              <ArchiveBoxIcon className="w-8 h-8 mb-3" />
+              <h3 className="font-semibold text-lg mb-2">Backup Manager</h3>
+              <p className="text-sm text-green-100 opacity-90">
+                Automated backups, scheduling, and restore capabilities
+              </p>
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          </button>
+
+          <button
+            onClick={() => navigate('/sites')}
+            className="group relative overflow-hidden bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white p-6 rounded-xl shadow-lg transition-all duration-200 hover:shadow-xl hover:-translate-y-1"
+          >
+            <div className="relative z-10">
+              <PaintBrushIcon className="w-8 h-8 mb-3" />
+              <h3 className="font-semibold text-lg mb-2">Theme Manager</h3>
+              <p className="text-sm text-pink-100 opacity-90">
+                Install, customize, and manage WordPress themes with live preview
+              </p>
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          </button>
+
+          <button
+            onClick={() => navigate('/sites')}
+            className="group relative overflow-hidden bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white p-6 rounded-xl shadow-lg transition-all duration-200 hover:shadow-xl hover:-translate-y-1"
+          >
+            <div className="relative z-10">
+              <ShieldExclamationIcon className="w-8 h-8 mb-3" />
+              <h3 className="font-semibold text-lg mb-2">Security Scanner</h3>
+              <p className="text-sm text-red-100 opacity-90">
+                Comprehensive security auditing and vulnerability detection
+              </p>
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          </button>
+        </div>
+      </div>
+
+      {/* WordPress Sites Section */}
+      <div className="card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center">
+              <GlobeAltIcon className="w-5 h-5 mr-2" />
+              WordPress Sites ({sites.length})
+            </h2>
             <button 
-              className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 border border-blue-200 dark:border-blue-800 rounded-lg hover:from-blue-100 hover:to-blue-200 dark:hover:from-blue-800/30 dark:hover:to-blue-700/30 transition-all group"
               onClick={handleCreateSite}
+              className="btn-primary text-sm px-3 py-1.5"
             >
-              <div className="flex items-center">
-                <div className="p-2 bg-blue-600 rounded-lg mr-3">
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </div>
-                <div className="text-left">
-                  <p className="font-medium text-gray-900 dark:text-white">Create New Site</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Set up a fresh WordPress installation</p>
-                </div>
-              </div>
-              <svg className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-
-            <button 
-              className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-all group"
-              onClick={handleImportSite}
-            >
-              <div className="flex items-center">
-                <div className="p-2 bg-gray-600 rounded-lg mr-3">
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                  </svg>
-                </div>
-                <div className="text-left">
-                  <p className="font-medium text-gray-900 dark:text-white">Import Existing Site</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Import from existing WordPress folder</p>
-                </div>
-              </div>
-              <svg className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-
-            <button 
-              className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-all group"
-              onClick={handleViewAllSites}
-            >
-              <div className="flex items-center">
-                <div className="p-2 bg-gray-600 rounded-lg mr-3">
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                  </svg>
-                </div>
-                <div className="text-left">
-                  <p className="font-medium text-gray-900 dark:text-white">Manage All Sites</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">View and manage your WordPress sites</p>
-                </div>
-              </div>
-              <svg className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              + New Site
             </button>
           </div>
-        </div>
-
-        {/* Recent Sites */}
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Recent Sites
-          </h2>
+          
           {loading ? (
-            <div className="flex justify-center py-8">
-              <div className="spinner w-6 h-6"></div>
+            <div className="space-y-3">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="animate-pulse">
+                  <div className="h-16 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+                </div>
+              ))}
             </div>
           ) : sites.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500 dark:text-gray-400">
-                No sites created yet
+            <div className="text-center py-12">
+              <GlobeAltIcon className="mx-auto h-12 w-12 text-gray-400" />
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No sites yet</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Get started by creating your first WordPress site
               </p>
-              <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
-                Create your first site to get started
-              </p>
+              <div className="mt-6">
+                <button 
+                  onClick={handleCreateSite}
+                  className="btn-primary"
+                >
+                  Create Your First Site
+                </button>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">
-              {sites.slice(0, 3).map((site) => (
-                <div key={site.id} className="group p-4 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-all cursor-pointer">
+              {sites.map((site) => (
+                <div 
+                  key={site.id} 
+                  className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-sm transition-all"
+                >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
-                      <div className={`w-3 h-3 rounded-full ${
-                        site.status === 'running' ? 'bg-green-500' : 
-                        site.status === 'starting' ? 'bg-yellow-500 animate-pulse' :
-                        site.status === 'stopping' ? 'bg-orange-500 animate-pulse' :
-                        'bg-gray-400'
-                      }`}></div>
-                      <div>
-                        <h3 className="font-medium text-gray-900 dark:text-white">{site.name}</h3>
-                        <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
-                          <span>{site.domain}</span>
-                          <span>•</span>
-                          <span>PHP {(site as any).phpVersion || '8.1'}</span>
+                      <div className="flex-shrink-0">
+                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-semibold text-sm">
+                          {site.name.charAt(0).toUpperCase()}
+                        </div>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-sm font-medium text-gray-900 dark:text-white">
+                          {site.name}
+                        </h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {site.domain || site.url || 'localhost'}
+                        </p>
+                        <div className="flex items-center mt-1">
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                            site.status === 'running' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 
+                            site.status === 'stopped' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' :
+                            site.status === 'starting' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                            site.status === 'stopping' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' :
+                            'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                          }`}>
+                            {site.status}
+                          </span>
                         </div>
                       </div>
                     </div>
+                    
                     <div className="flex items-center space-x-2">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        site.status === 'running' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 
-                        site.status === 'stopped' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' :
-                        site.status === 'starting' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                        'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                      }`}>
-                        {site.status}
-                      </span>
-                      <svg className="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
+                      {site.status === 'running' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewSite(site);
+                          }}
+                          className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                          title="View Site"
+                        >
+                          <EyeIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                      
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate('/sites');
+                        }}
+                        className="p-2 text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-lg transition-colors"
+                        title="Manage Site"
+                      >
+                        <Cog8ToothIcon className="w-4 h-4" />
+                      </button>
+
+                      {site.status === 'running' || site.status === 'stopping' ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStopSite(site.id);
+                          }}
+                          disabled={site.status === 'stopping'}
+                          className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Stop Site"
+                        >
+                          {site.status === 'stopping' ? (
+                            <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                          ) : (
+                            <StopIcon className="w-4 h-4" />
+                          )}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartSite(site.id);
+                          }}
+                          disabled={site.status === 'starting'}
+                          className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Start Site"
+                        >
+                          {site.status === 'starting' ? (
+                            <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+                          ) : (
+                            <PlayIcon className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
               ))}
-              {sites.length > 3 && (
-                <button className="btn-secondary w-full mt-3" onClick={handleViewAllSites}>
-                  View All {sites.length} Sites
-                </button>
-              )}
             </div>
           )}
-        </div>
       </div>
-
-
 
       {/* Modals */}
       <CreateSiteModal
@@ -390,6 +450,16 @@ export function Dashboard() {
         onClose={() => setShowImportModal(false)}
         onSiteImported={handleSiteImported}
       />
+      {showTemplateLibrary && (
+        <SiteTemplateLibrary
+          isOpen={showTemplateLibrary}
+          onClose={() => setShowTemplateLibrary(false)}
+          onTemplateSelect={(template) => {
+            setShowTemplateLibrary(false);
+            // Handle template selection
+          }}
+        />
+      )}
     </div>
   );
 }

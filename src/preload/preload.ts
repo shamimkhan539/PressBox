@@ -96,6 +96,39 @@ export interface ElectronAPI {
     ) => Promise<void>;
     getServiceStats: (siteId: string, serviceName: string) => Promise<any>;
 
+    // Windows Hosts File Management
+    hosts: {
+        list: () => Promise<HostEntry[]>;
+        add: (entry: {
+            ip: string;
+            hostname: string;
+            comment?: string;
+            isWordPress?: boolean;
+            siteId?: string;
+        }) => Promise<{ success: boolean }>;
+        remove: (hostname: string) => Promise<{ success: boolean }>;
+        toggle: (
+            hostname: string,
+            enabled: boolean
+        ) => Promise<{ success: boolean }>;
+        addSite: (
+            siteId: string,
+            hostname: string,
+            ip?: string
+        ) => Promise<{ success: boolean }>;
+        removeSite: (siteId: string) => Promise<{ success: boolean }>;
+        backup: () => Promise<{ success: boolean }>;
+        restore: () => Promise<{ success: boolean }>;
+        checkAdmin: () => Promise<boolean>;
+        getStats: () => Promise<{
+            totalEntries: number;
+            wordpressEntries: number;
+            enabledEntries: number;
+            hasBackup: boolean;
+            lastModified: Date;
+        }>;
+    };
+
     // Events
     on: (channel: string, callback: (...args: any[]) => void) => void;
     off: (channel: string, callback: (...args: any[]) => void) => void;
@@ -103,6 +136,17 @@ export interface ElectronAPI {
 }
 
 // Type definitions for the API
+interface HostEntry {
+    id?: string;
+    ip: string;
+    hostname: string;
+    comment: string;
+    enabled: boolean;
+    isWordPress: boolean;
+    siteId?: string;
+    lastModified?: string;
+}
+
 interface CreateSiteConfig {
     name: string;
     domain?: string;
@@ -255,6 +299,22 @@ const electronAPI: ElectronAPI = {
         ),
     getServiceStats: (siteId, serviceName) =>
         ipcRenderer.invoke("server:get-service-stats", siteId, serviceName),
+
+    // Windows Hosts File Management
+    hosts: {
+        list: () => ipcRenderer.invoke("hosts:list"),
+        add: (entry) => ipcRenderer.invoke("hosts:add", entry),
+        remove: (hostname) => ipcRenderer.invoke("hosts:remove", hostname),
+        toggle: (hostname, enabled) =>
+            ipcRenderer.invoke("hosts:toggle", hostname, enabled),
+        addSite: (siteId, hostname, ip) =>
+            ipcRenderer.invoke("hosts:add-site", siteId, hostname, ip),
+        removeSite: (siteId) => ipcRenderer.invoke("hosts:remove-site", siteId),
+        backup: () => ipcRenderer.invoke("hosts:backup"),
+        restore: () => ipcRenderer.invoke("hosts:restore"),
+        checkAdmin: () => ipcRenderer.invoke("hosts:check-admin"),
+        getStats: () => ipcRenderer.invoke("hosts:stats"),
+    },
 
     // Event Handling
     on: (channel, callback) => {

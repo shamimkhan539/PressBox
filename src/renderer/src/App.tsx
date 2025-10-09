@@ -16,14 +16,12 @@ import {
   WrenchScrewdriverIcon,
   PuzzlePieceIcon,
   CogIcon,
-  XMarkIcon,
-  Bars3Icon,
   SunIcon,
   MoonIcon
 } from '@heroicons/react/24/outline';
 
-// Sidebar component
-const Sidebar = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
+// Fixed Sidebar component with icons only and tooltips
+const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -38,41 +36,48 @@ const Sidebar = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
 
   const handleNavigation = (path: string) => {
     navigate(path);
-    onClose();
   };
 
   return (
-    <div className={cn(
-      'fixed inset-y-0 left-0 z-10 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transform transition-transform duration-300 ease-in-out',
-      open ? 'translate-x-0' : '-translate-x-full'
-    )}>
+    <div className="fixed inset-y-0 left-0 z-10 w-16 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
       <div className="flex flex-col h-full">
-        {/* Sidebar Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">PressBox</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
-            <XMarkIcon className="w-5 h-5" />
-          </button>
+        {/* Sidebar Header - Logo only */}
+        <div className="flex items-center justify-center p-3 border-b border-gray-200 dark:border-gray-700">
+          <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+            <span className="text-white font-bold text-sm">P</span>
+          </div>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-2">
+        <nav className="flex-1 p-2 space-y-2">
           {navigationItems.map((item) => {
             const IconComponent = item.icon;
+            const isActive = location.pathname === item.path;
+            
             return (
-              <button
-                key={item.path}
-                onClick={() => handleNavigation(item.path)}
-                className={cn(
-                  'w-full flex items-center px-3 py-2 text-left rounded-lg transition-colors',
-                  location.pathname === item.path
-                    ? 'bg-blue-50 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                )}
-              >
-                <IconComponent className="w-5 h-5 mr-3" />
-                {item.label}
-              </button>
+              <div key={item.path} className="relative group">
+                <button
+                  onClick={() => handleNavigation(item.path)}
+                  className={cn(
+                    'w-12 h-12 flex items-center justify-center rounded-lg transition-all duration-200',
+                    isActive
+                      ? 'bg-blue-500 text-white shadow-lg'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                  )}
+                  title={item.label}
+                >
+                  <IconComponent className={cn(
+                    'w-6 h-6 transition-colors',
+                    isActive && 'text-white'
+                  )} />
+                </button>
+                
+                {/* Tooltip */}
+                <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-2 px-2 py-1 bg-gray-900 dark:bg-gray-700 text-white text-sm rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-20">
+                  {item.label}
+                  <div className="absolute right-full top-1/2 transform -translate-y-1/2 border-4 border-transparent border-r-gray-900 dark:border-r-gray-700"></div>
+                </div>
+              </div>
             );
           })}
         </nav>
@@ -80,11 +85,8 @@ const Sidebar = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
     </div>
   );
 };
-const Header = ({ onMenuClick, theme, onThemeChange }: { onMenuClick: () => void; theme: string; onThemeChange: (theme: any) => void }) => (
+const Header = ({ theme, onThemeChange }: { theme: string; onThemeChange: (theme: any) => void }) => (
   <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2 flex items-center justify-between">
-    <button onClick={onMenuClick} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-      <Bars3Icon className="w-5 h-5" />
-    </button>
     <h1 className="text-lg font-semibold text-gray-900 dark:text-white">PressBox</h1>
     <button onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
       {theme === 'dark' ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
@@ -102,7 +104,6 @@ const SiteProvider = ({ children }: { children: any }) => children;
  * and the overall application layout.
  */
 function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   // Initialize theme from settings
@@ -137,25 +138,13 @@ function App() {
     )}>
       <NotificationProvider>
         <SiteProvider>
-          {/* Sidebar */}
-          <Sidebar 
-            open={sidebarOpen} 
-            onClose={() => setSidebarOpen(false)} 
-          />
-
-          {/* Overlay for mobile */}
-          {sidebarOpen && (
-            <div 
-              className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
-              onClick={() => setSidebarOpen(false)}
-            />
-          )}
+          {/* Fixed Sidebar */}
+          <Sidebar />
 
           {/* Main Content */}
-          <div className="flex-1 flex flex-col min-w-0 md:ml-0">
+          <div className="flex-1 flex flex-col min-w-0 ml-16">
             {/* Header */}
             <Header 
-              onMenuClick={() => setSidebarOpen(!sidebarOpen)}
               theme={theme}
               onThemeChange={setTheme}
             />

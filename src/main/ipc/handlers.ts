@@ -4,6 +4,7 @@ import { WordPressManager } from "../services/wordpressManager";
 import { DockerManager } from "../services/dockerManager";
 import { PluginManager } from "../services/pluginManager";
 import { BlueprintManager } from "../services/blueprintManager";
+import { HostsFileService } from "../services/hostsFileService";
 import { CreateSiteRequest } from "../../shared/types";
 
 /**
@@ -32,6 +33,7 @@ export class IPCHandlers {
         this.registerSettingsHandlers();
         this.registerFileSystemHandlers();
         this.registerSystemHandlers();
+        this.registerHostsFileHandlers();
     }
 
     /**
@@ -474,6 +476,142 @@ export class IPCHandlers {
 
         ipcMain.handle("system:get-architecture", async () => {
             return process.arch;
+        });
+    }
+
+    /**
+     * Register Windows hosts file management handlers
+     */
+    private registerHostsFileHandlers(): void {
+        ipcMain.handle("hosts:list", async () => {
+            try {
+                return await HostsFileService.readHostsFile();
+            } catch (error) {
+                console.error("Failed to read hosts file:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle(
+            "hosts:add",
+            async (
+                _,
+                entry: {
+                    ip: string;
+                    hostname: string;
+                    comment?: string;
+                    isWordPress?: boolean;
+                    siteId?: string;
+                }
+            ) => {
+                try {
+                    await HostsFileService.addHostEntry({
+                        ip: entry.ip,
+                        hostname: entry.hostname,
+                        comment: entry.comment || "Added by PressBox",
+                        isWordPress: entry.isWordPress || false,
+                        siteId: entry.siteId,
+                    });
+                    return { success: true };
+                } catch (error) {
+                    console.error("Failed to add hosts entry:", error);
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle("hosts:remove", async (_, hostname: string) => {
+            try {
+                await HostsFileService.removeHostEntry(hostname);
+                return { success: true };
+            } catch (error) {
+                console.error("Failed to remove hosts entry:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle(
+            "hosts:toggle",
+            async (_, hostname: string, enabled: boolean) => {
+                try {
+                    await HostsFileService.toggleHostEntry(hostname, enabled);
+                    return { success: true };
+                } catch (error) {
+                    console.error("Failed to toggle hosts entry:", error);
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "hosts:add-site",
+            async (_, siteId: string, hostname: string, ip?: string) => {
+                try {
+                    await HostsFileService.addWordPressSiteEntry(
+                        siteId,
+                        hostname,
+                        ip
+                    );
+                    return { success: true };
+                } catch (error) {
+                    console.error(
+                        "Failed to add WordPress site hosts entry:",
+                        error
+                    );
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle("hosts:remove-site", async (_, siteId: string) => {
+            try {
+                await HostsFileService.removeWordPressSiteEntry(siteId);
+                return { success: true };
+            } catch (error) {
+                console.error(
+                    "Failed to remove WordPress site hosts entries:",
+                    error
+                );
+                throw error;
+            }
+        });
+
+        ipcMain.handle("hosts:backup", async () => {
+            try {
+                await HostsFileService.ensureBackup();
+                return { success: true };
+            } catch (error) {
+                console.error("Failed to backup hosts file:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle("hosts:restore", async () => {
+            try {
+                await HostsFileService.restoreFromBackup();
+                return { success: true };
+            } catch (error) {
+                console.error("Failed to restore hosts file:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle("hosts:check-admin", async () => {
+            try {
+                return await HostsFileService.checkAdminPrivileges();
+            } catch (error) {
+                console.error("Failed to check admin privileges:", error);
+                return false;
+            }
+        });
+
+        ipcMain.handle("hosts:stats", async () => {
+            try {
+                return await HostsFileService.getHostsStats();
+            } catch (error) {
+                console.error("Failed to get hosts stats:", error);
+                throw error;
+            }
         });
     }
 }

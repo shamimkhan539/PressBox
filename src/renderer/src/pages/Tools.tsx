@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { ComputerDesktopIcon } from '@heroicons/react/24/outline';
 import { ToolIcons, StatusDisplay } from '../components/Icons.tsx';
+import { HostsManager } from '../components/HostsManager';
 
 interface ToolsProps {}
 
@@ -24,6 +26,7 @@ export function Tools() {
   const [dockerStatus, setDockerStatus] = useState<DockerStatus>({ installed: false, running: false });
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showHostsManager, setShowHostsManager] = useState(false);
 
   useEffect(() => {
     loadToolsData();
@@ -251,6 +254,46 @@ export function Tools() {
         </div>
       </div>
 
+      {/* Hosts File Manager */}
+      <div className="mt-8 card">
+        <div className="p-6">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+            <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900 rounded-lg flex items-center justify-center mr-3">
+              <ComputerDesktopIcon className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+            </div>
+            Hosts File Manager
+          </h2>
+          
+          <p className="text-gray-600 dark:text-gray-400 mb-6">
+            Manage Windows hosts file entries to redirect domains to your local WordPress sites.
+          </p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <h3 className="font-medium text-blue-900 dark:text-blue-300 mb-2">Auto-managed Entries</h3>
+              <p className="text-sm text-blue-800 dark:text-blue-300">
+                PressBox automatically adds entries for WordPress sites with custom domains.
+              </p>
+            </div>
+            
+            <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+              <h3 className="font-medium text-green-900 dark:text-green-300 mb-2">Backup & Restore</h3>
+              <p className="text-sm text-green-800 dark:text-green-300">
+                Automatically backs up your hosts file before making changes.
+              </p>
+            </div>
+          </div>
+
+          <button 
+            onClick={() => setShowHostsManager(true)}
+            className="btn-primary"
+          >
+            <ComputerDesktopIcon className="w-5 h-5 mr-2" />
+            Open Hosts Manager
+          </button>
+        </div>
+      </div>
+
       {/* Performance Tips */}
       <div className="mt-8 card">
         <div className="p-6">
@@ -304,6 +347,12 @@ export function Tools() {
           </div>
         </div>
       </div>
+
+      {/* Hosts Manager Modal */}
+      <HostsManager
+        isOpen={showHostsManager}
+        onClose={() => setShowHostsManager(false)}
+      />
     </div>
   );
 }
