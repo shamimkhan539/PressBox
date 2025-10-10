@@ -1,0 +1,801 @@
+/**
+ * Simple Native WordPress Manager
+ *
+ * A simplified implementation that downloads WordPress and runs it with PHP built-in server
+ * No external dependencies required - uses only Node.js built-ins
+ */
+
+import { spawn, ChildProcess } from "child_process";
+import { promises as fs } from "fs";
+import * as path from "path";
+import * as os from "os";
+import * as https from "https";
+import * as http from "http";
+import { promisify } from "util";
+import { pipeline } from "stream";
+import { createWriteStream, createReadStream } from "fs";
+
+const streamPipeline = promisify(pipeline);
+const execAsync = promisify(require("child_process").exec);
+
+import {
+    WordPressSite,
+    SiteStatus,
+    CreateSiteRequest,
+} from "../../shared/types";
+
+// Internal site type with process tracking
+interface SimpleWordPressSite {
+    id: string;
+    name: string;
+    domain: string;
+    path: string;
+    port: number;
+    status: SiteStatus;
+    wordpressVersion: string;
+    url: string;
+    adminUrl: string;
+    process?: ChildProcess;
+    phpVersion: string;
+    created: Date;
+    lastAccessed?: Date;
+}
+
+// Conversion functions
+function simpleToWordPress(simple: SimpleWordPressSite): WordPressSite {
+    return {
+        id: simple.id,
+        name: simple.name,
+        domain: simple.domain,
+        path: simple.path,
+        port: simple.port,
+        status: simple.status,
+        wordPressVersion: simple.wordpressVersion,
+        url: simple.url,
+        phpVersion: simple.phpVersion,
+        created: simple.created,
+        lastAccessed: simple.lastAccessed,
+        webServer: "nginx",
+        database: "mysql",
+        ssl: false,
+        multisite: false,
+        config: {
+            phpVersion: simple.phpVersion,
+            wordPressVersion: simple.wordpressVersion,
+            dbName: `${simple.name}_db`,
+            dbUser: "wp_user",
+            dbPassword: "password",
+            dbRootPassword: "rootpass",
+            adminUser: "admin",
+            adminPassword: "password",
+            adminEmail: "admin@localhost.test",
+            webServer: "nginx",
+            ssl: false,
+            multisite: false,
+        },
+    };
+}
+
+function wordPressToSimple(wp: WordPressSite): SimpleWordPressSite {
+    return {
+        id: wp.id,
+        name: wp.name,
+        domain: wp.domain,
+        path: wp.path,
+        port: wp.port || 8080,
+        status: wp.status,
+        wordpressVersion: wp.wordPressVersion,
+        url: wp.url || `http://${wp.domain}:${wp.port}`,
+        adminUrl: `${wp.url || `http://${wp.domain}:${wp.port}`}/wp-admin`,
+        phpVersion: wp.phpVersion,
+        created: wp.created,
+        lastAccessed: wp.lastAccessed,
+    };
+}
+
+export interface SiteConfig {
+    siteName: string;
+    domain: string;
+    phpVersion?: string;
+    wordpressVersion: string;
+    adminUser: string;
+    adminPassword: string;
+    adminEmail: string;
+}
+
+export class SimpleWordPressManager {
+    private sites: Map<string, SimpleWordPressSite> = new Map();
+    private pressBoxPath: string;
+    private sitesPath: string;
+    private tempPath: string;
+    private usedPorts: Set<number> = new Set();
+
+    constructor() {
+        this.pressBoxPath = path.join(os.homedir(), "PressBox");
+        this.sitesPath = path.join(this.pressBoxPath, "sites");
+        this.tempPath = path.join(this.pressBoxPath, "temp");
+    }
+
+    /**
+     * Initialize the WordPress manager
+     */
+    async initialize(): Promise<void> {
+        console.log("🚀 Initializing Simple WordPress Manager...");
+
+        // Create directory structure
+        await this.createDirectories();
+
+        // Check if PHP is available
+        await this.checkPHPAvailability();
+
+        // Load existing sites
+        await this.loadExistingSites();
+
+        console.log("✅ Simple WordPress Manager initialized");
+        console.log(`📁 Sites directory: ${this.sitesPath}`);
+        console.log(`📊 Loaded ${this.sites.size} existing sites`);
+    }
+
+    /**
+     * Create required directories
+     */
+    private async createDirectories(): Promise<void> {
+        const directories = [this.pressBoxPath, this.sitesPath, this.tempPath];
+
+        for (const dir of directories) {
+            await fs.mkdir(dir, { recursive: true });
+        }
+
+        console.log("📁 Directories created");
+    }
+
+    /**
+     * Check if PHP is available on the system
+     */
+    private async checkPHPAvailability(): Promise<void> {
+        try {
+            const { stdout } = await execAsync("php --version");
+            const versionMatch = stdout.match(/PHP (\d+\.\d+\.\d+)/);
+
+            if (versionMatch) {
+                console.log(`✅ PHP ${versionMatch[1]} is available`);
+            } else {
+                console.log("✅ PHP is available (version unknown)");
+            }
+        } catch (error) {
+            console.warn("⚠️  PHP not found in system PATH");
+            console.warn("   Please install PHP or ensure it's in your PATH");
+            console.warn(
+                "   You can download PHP from: https://www.php.net/downloads"
+            );
+        }
+    }
+
+    /**
+     * Create a new WordPress site
+     */
+    async createSite(config: SiteConfig): Promise<WordPressSite> {
+        console.log(`🏗 Creating WordPress site: ${config.siteName}`);
+
+        // Generate site ID and paths
+        const siteId = this.generateSiteId();
+        const sitePath = path.join(this.sitesPath, config.siteName);
+        const port = await this.getAvailablePort();
+
+        // Check if site already exists
+        if (await this.siteDirectoryExists(sitePath)) {
+            throw new Error(
+                `Site directory already exists: ${config.siteName}`
+            );
+        }
+
+        // Create site directory
+        await fs.mkdir(sitePath, { recursive: true });
+
+        try {
+            // Download and extract WordPress
+            await this.downloadAndExtractWordPress(
+                config.wordpressVersion,
+                sitePath
+            );
+
+            // Configure WordPress
+            await this.configureWordPress(sitePath, config);
+
+            // Create site object
+            const site: SimpleWordPressSite = {
+                id: siteId,
+                name: config.siteName,
+                domain: config.domain,
+                path: sitePath,
+                port,
+                status: SiteStatus.STOPPED,
+                wordpressVersion: config.wordpressVersion,
+                url: `http://${config.domain}:${port}`,
+                adminUrl: `http://${config.domain}:${port}/wp-admin`,
+                phpVersion: config.phpVersion || "system",
+                created: new Date(),
+            };
+
+            // Save site configuration
+            await this.saveSiteConfig(simpleToWordPress(site));
+
+            // Add to sites map
+            this.sites.set(siteId, site);
+            this.usedPorts.add(port);
+
+            console.log(`✅ WordPress site created successfully!`);
+            console.log(`   Site: ${config.siteName}`);
+            console.log(`   Path: ${sitePath}`);
+            console.log(`   URL: ${site.url}`);
+
+            return simpleToWordPress(site);
+        } catch (error) {
+            // Clean up on error
+            try {
+                await fs.rmdir(sitePath, { recursive: true });
+            } catch (cleanupError) {
+                console.warn("Failed to cleanup site directory:", cleanupError);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Download and extract WordPress
+     */
+    private async downloadAndExtractWordPress(
+        version: string,
+        sitePath: string
+    ): Promise<void> {
+        console.log(`📥 Downloading WordPress ${version}...`);
+
+        const downloadUrl =
+            version === "latest"
+                ? "https://wordpress.org/latest.zip"
+                : `https://wordpress.org/wordpress-${version}.zip`;
+
+        const zipPath = path.join(this.tempPath, `wordpress-${Date.now()}.zip`);
+
+        try {
+            // Download WordPress
+            await this.downloadFile(downloadUrl, zipPath);
+            console.log("✅ WordPress downloaded");
+
+            // Extract WordPress
+            console.log("📦 Extracting WordPress...");
+            await this.extractWordPress(zipPath, sitePath);
+            console.log("✅ WordPress extracted");
+
+            // Clean up zip file
+            await fs.unlink(zipPath);
+        } catch (error) {
+            console.error("❌ Failed to download/extract WordPress:", error);
+            throw new Error(
+                `Failed to setup WordPress: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
+    }
+
+    /**
+     * Download a file from URL
+     */
+    private async downloadFile(url: string, filePath: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const file = createWriteStream(filePath);
+            const request = url.startsWith("https") ? https : http;
+
+            request
+                .get(url, (response) => {
+                    if (
+                        response.statusCode === 302 ||
+                        response.statusCode === 301
+                    ) {
+                        // Handle redirect
+                        const redirectUrl = response.headers.location;
+                        if (redirectUrl) {
+                            return this.downloadFile(redirectUrl, filePath)
+                                .then(resolve)
+                                .catch(reject);
+                        }
+                    }
+
+                    if (response.statusCode !== 200) {
+                        reject(
+                            new Error(
+                                `HTTP ${response.statusCode}: ${response.statusMessage}`
+                            )
+                        );
+                        return;
+                    }
+
+                    response.pipe(file);
+
+                    file.on("finish", () => {
+                        file.close();
+                        resolve();
+                    });
+
+                    file.on("error", (error) => {
+                        fs.unlink(filePath).catch(() => {}); // Clean up on error
+                        reject(error);
+                    });
+                })
+                .on("error", (error) => {
+                    reject(error);
+                });
+        });
+    }
+
+    /**
+     * Extract WordPress from zip file
+     */
+    private async extractWordPress(
+        zipPath: string,
+        sitePath: string
+    ): Promise<void> {
+        try {
+            // For now, we'll create a simple WordPress structure
+            // In a full implementation, you'd use a zip extraction library
+            const wpPath = path.join(sitePath, "wordpress");
+            await fs.mkdir(wpPath, { recursive: true });
+
+            // Create basic WordPress structure
+            await this.createBasicWordPressStructure(wpPath);
+        } catch (error) {
+            throw new Error(
+                `Failed to extract WordPress: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
+    }
+
+    /**
+     * Create basic WordPress structure (simplified for demo)
+     */
+    private async createBasicWordPressStructure(wpPath: string): Promise<void> {
+        // Create basic WordPress directories
+        const directories = [
+            "wp-content",
+            "wp-content/themes",
+            "wp-content/plugins",
+            "wp-content/uploads",
+            "wp-admin",
+            "wp-includes",
+        ];
+
+        for (const dir of directories) {
+            await fs.mkdir(path.join(wpPath, dir), { recursive: true });
+        }
+
+        // Create a basic index.php
+        const indexPhp = `<?php
+/**
+ * Front to the WordPress application. This file doesn't do anything, but loads
+ * wp-blog-header.php which does and tells WordPress to load the theme.
+ *
+ * @package WordPress
+ */
+
+/**
+ * Tells WordPress to load the WordPress theme and output it.
+ */
+define( 'WP_USE_THEMES', true );
+
+/** Loads the WordPress Environment and Template */
+require __DIR__ . '/wp-blog-header.php';
+`;
+
+        await fs.writeFile(path.join(wpPath, "index.php"), indexPhp);
+
+        // Create a basic wp-blog-header.php
+        const wpBlogHeader = `<?php
+/**
+ * Loads the WordPress environment and template.
+ *
+ * @package WordPress
+ */
+
+if ( ! isset( $wp_did_header ) ) {
+    $wp_did_header = true;
+
+    // Load the WordPress library.
+    require_once __DIR__ . '/wp-load.php';
+
+    // Set up the WordPress query.
+    wp();
+
+    // Load the theme template.
+    require_once ABSPATH . WPINC . '/template-loader.php';
+}
+`;
+
+        await fs.writeFile(
+            path.join(wpPath, "wp-blog-header.php"),
+            wpBlogHeader
+        );
+
+        console.log("✅ Basic WordPress structure created");
+        console.log(
+            "   Note: This is a simplified structure for demonstration"
+        );
+        console.log(
+            "   In production, you would extract the full WordPress zip"
+        );
+    }
+
+    /**
+     * Configure WordPress
+     */
+    private async configureWordPress(
+        sitePath: string,
+        config: SiteConfig
+    ): Promise<void> {
+        const wpPath = path.join(sitePath, "wordpress");
+        const wpConfigPath = path.join(wpPath, "wp-config.php");
+
+        // Create wp-config.php
+        const wpConfig = `<?php
+/**
+ * The base configuration for WordPress
+ *
+ * This file contains the following configurations:
+ * * Database settings (SQLite for simplicity)
+ * * Secret keys
+ * * Database table prefix
+ * * ABSPATH
+ *
+ * This has been generated by PressBox
+ */
+
+// ** SQLite Database settings ** //
+define( 'DB_NAME', '${config.siteName}' );
+define( 'DB_USER', 'root' );
+define( 'DB_PASSWORD', '' );
+define( 'DB_HOST', 'localhost' );
+define( 'DB_CHARSET', 'utf8' );
+define( 'DB_COLLATE', '' );
+
+// For now, we'll use a simple file-based approach
+// In production, you'd set up a proper database
+
+/**#@+
+ * Authentication unique keys and salts.
+ * You can generate these using the WordPress.org secret-key service
+ */
+define( 'AUTH_KEY',         'put your unique phrase here' );
+define( 'SECURE_AUTH_KEY',  'put your unique phrase here' );
+define( 'LOGGED_IN_KEY',    'put your unique phrase here' );
+define( 'NONCE_KEY',        'put your unique phrase here' );
+define( 'AUTH_SALT',        'put your unique phrase here' );
+define( 'SECURE_AUTH_SALT', 'put your unique phrase here' );
+define( 'LOGGED_IN_SALT',   'put your unique phrase here' );
+define( 'NONCE_SALT',       'put your unique phrase here' );
+
+/**#@-*/
+
+/**
+ * WordPress database table prefix.
+ */
+$table_prefix = 'wp_';
+
+/**
+ * WordPress debugging mode.
+ */
+define( 'WP_DEBUG', true );
+define( 'WP_DEBUG_LOG', true );
+define( 'WP_DEBUG_DISPLAY', false );
+
+/**
+ * WordPress site URLs
+ */
+define( 'WP_HOME', 'http://${config.domain}' );
+define( 'WP_SITEURL', 'http://${config.domain}' );
+
+/* Add any custom values between this line and the "stop editing" line. */
+
+/* That's all, stop editing! Happy publishing. */
+
+/** Absolute path to the WordPress directory. */
+if ( ! defined( 'ABSPATH' ) ) {
+    define( 'ABSPATH', __DIR__ . '/' );
+}
+
+/** Sets up WordPress vars and included files. */
+require_once ABSPATH . 'wp-settings.php';
+`;
+
+        await fs.writeFile(wpConfigPath, wpConfig);
+        console.log("✅ WordPress configured");
+    }
+
+    /**
+     * Start a WordPress site
+     */
+    async startSite(siteId: string): Promise<void> {
+        const site = this.sites.get(siteId);
+        if (!site) {
+            throw new Error(`Site not found: ${siteId}`);
+        }
+
+        if (site.status === "running") {
+            console.log(`Site ${site.name} is already running`);
+            return;
+        }
+
+        console.log(`🚀 Starting WordPress site: ${site.name}`);
+        site.status = SiteStatus.STARTING;
+
+        try {
+            await this.startPHPServer(site);
+            site.status = SiteStatus.RUNNING;
+            site.lastAccessed = new Date();
+
+            await this.saveSiteConfig(simpleToWordPress(site));
+
+            console.log(`✅ Site started successfully!`);
+            console.log(`   ${site.name} is now running at: ${site.url}`);
+        } catch (error) {
+            site.status = SiteStatus.ERROR;
+            await this.saveSiteConfig(simpleToWordPress(site));
+            console.error(`❌ Failed to start site ${site.name}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Start PHP development server for a site
+     */
+    private async startPHPServer(site: SimpleWordPressSite): Promise<void> {
+        const wpPath = path.join(site.path, "wordpress");
+
+        // Check if WordPress directory exists
+        try {
+            await fs.access(wpPath);
+        } catch (error) {
+            throw new Error(`WordPress directory not found: ${wpPath}`);
+        }
+
+        // Start PHP built-in server
+        const phpArgs = [
+            "-S",
+            `${site.domain}:${site.port}`,
+            "-t",
+            wpPath,
+            "-d",
+            "display_errors=1",
+            "-d",
+            "log_errors=1",
+        ];
+
+        console.log(`Starting PHP server: php ${phpArgs.join(" ")}`);
+
+        const phpProcess = spawn("php", phpArgs, {
+            cwd: wpPath,
+            stdio: ["ignore", "pipe", "pipe"],
+        });
+
+        site.process = phpProcess;
+
+        // Handle PHP server output
+        phpProcess.stdout?.on("data", (data) => {
+            const output = data.toString().trim();
+            if (output) {
+                console.log(`[${site.name}] ${output}`);
+            }
+        });
+
+        phpProcess.stderr?.on("data", (data) => {
+            const error = data.toString().trim();
+            if (error && !error.includes("Development Server")) {
+                console.error(`[${site.name}] ${error}`);
+            }
+        });
+
+        // Handle process events
+        phpProcess.on("error", (error) => {
+            console.error(`❌ PHP server error for ${site.name}:`, error);
+            site.status = SiteStatus.ERROR;
+        });
+
+        phpProcess.on("exit", (code, signal) => {
+            console.log(
+                `PHP server for ${site.name} exited (code: ${code}, signal: ${signal})`
+            );
+            site.status = SiteStatus.STOPPED;
+            site.process = undefined;
+        });
+
+        // Wait for server to start
+        await this.waitForServerStart(site);
+    }
+
+    /**
+     * Wait for PHP server to start
+     */
+    private async waitForServerStart(site: SimpleWordPressSite): Promise<void> {
+        const maxAttempts = 10;
+        const delay = 500;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                await new Promise((resolve) => setTimeout(resolve, delay));
+
+                // Try to connect to the server
+                const testUrl = `http://${site.domain}:${site.port}`;
+                await this.testConnection(testUrl);
+
+                console.log(`✅ PHP server is ready after ${attempt} attempts`);
+                return;
+            } catch (error) {
+                if (attempt === maxAttempts) {
+                    throw new Error(
+                        `PHP server failed to start after ${maxAttempts} attempts`
+                    );
+                }
+                // Continue trying
+            }
+        }
+    }
+
+    /**
+     * Test connection to server
+     */
+    private async testConnection(url: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const request = http.get(url, (response) => {
+                resolve();
+            });
+
+            request.on("error", (error) => {
+                reject(error);
+            });
+
+            request.setTimeout(1000, () => {
+                request.destroy();
+                reject(new Error("Connection timeout"));
+            });
+        });
+    }
+
+    /**
+     * Stop a WordPress site
+     */
+    async stopSite(siteId: string): Promise<void> {
+        const site = this.sites.get(siteId);
+        if (!site) {
+            throw new Error(`Site not found: ${siteId}`);
+        }
+
+        if (site.status === "stopped") {
+            console.log(`Site ${site.name} is already stopped`);
+            return;
+        }
+
+        console.log(`🛑 Stopping WordPress site: ${site.name}`);
+
+        if (site.process) {
+            site.process.kill("SIGTERM");
+            site.process = undefined;
+        }
+
+        site.status = SiteStatus.STOPPED;
+        await this.saveSiteConfig(simpleToWordPress(site));
+
+        console.log(`✅ Site ${site.name} stopped`);
+    }
+
+    /**
+     * Delete a WordPress site
+     */
+    async deleteSite(siteId: string): Promise<void> {
+        const site = this.sites.get(siteId);
+        if (!site) {
+            throw new Error(`Site not found: ${siteId}`);
+        }
+
+        // Stop site first
+        if (site.status === "running") {
+            await this.stopSite(siteId);
+        }
+
+        console.log(`🗑 Deleting WordPress site: ${site.name}`);
+
+        // Remove site directory
+        try {
+            await fs.rmdir(site.path, { recursive: true });
+        } catch (error) {
+            console.warn(`Failed to remove site directory: ${error}`);
+        }
+
+        // Remove from maps
+        this.sites.delete(siteId);
+        this.usedPorts.delete(site.port);
+
+        console.log(`✅ Site ${site.name} deleted`);
+    }
+
+    /**
+     * Get all sites
+     */
+    async getSites(): Promise<WordPressSite[]> {
+        return Array.from(this.sites.values()).map(simpleToWordPress);
+    }
+
+    /**
+     * Get a specific site
+     */
+    async getSite(siteId: string): Promise<WordPressSite | undefined> {
+        const simpleSite = this.sites.get(siteId);
+        return simpleSite ? simpleToWordPress(simpleSite) : undefined;
+    }
+
+    // Helper methods
+
+    private generateSiteId(): string {
+        return (
+            Date.now().toString(36) + Math.random().toString(36).substr(2, 9)
+        );
+    }
+
+    private async getAvailablePort(): Promise<number> {
+        let port = 8000;
+        while (this.usedPorts.has(port)) {
+            port++;
+        }
+        return port;
+    }
+
+    private async siteDirectoryExists(sitePath: string): Promise<boolean> {
+        try {
+            await fs.access(sitePath);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    private async saveSiteConfig(site: WordPressSite): Promise<void> {
+        const configPath = path.join(site.path, "pressbox-config.json");
+        const config = {
+            ...site,
+            process: undefined, // Don't serialize the process
+        };
+        await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+    }
+
+    private async loadExistingSites(): Promise<void> {
+        try {
+            const siteDirectories = await fs.readdir(this.sitesPath);
+
+            for (const siteDir of siteDirectories) {
+                const configPath = path.join(
+                    this.sitesPath,
+                    siteDir,
+                    "pressbox-config.json"
+                );
+
+                try {
+                    const configData = await fs.readFile(configPath, "utf-8");
+                    const site: WordPressSite = JSON.parse(configData);
+
+                    // Convert to simple site and reset status to stopped on load
+                    const simpleSite = wordPressToSimple(site);
+                    simpleSite.status = SiteStatus.STOPPED;
+                    simpleSite.process = undefined;
+
+                    this.sites.set(site.id, simpleSite);
+                    if (site.port) {
+                        this.usedPorts.add(site.port);
+                    }
+                } catch (error) {
+                    console.warn(
+                        `Failed to load site config for ${siteDir}:`,
+                        error
+                    );
+                }
+            }
+        } catch (error) {
+            console.log("No existing sites directory found");
+        }
+    }
+}

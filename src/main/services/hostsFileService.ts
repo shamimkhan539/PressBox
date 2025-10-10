@@ -235,15 +235,24 @@ export class HostsFileService {
         hostname: string,
         ip: string = "127.0.0.1"
     ): Promise<void> {
-        const entry: Omit<HostEntry, "enabled"> = {
-            ip,
-            hostname,
-            comment: `PressBox WordPress Site - Site ID: ${siteId}`,
-            isWordPress: true,
-            siteId,
-        };
+        try {
+            const entry: Omit<HostEntry, "enabled"> = {
+                ip,
+                hostname,
+                comment: `PressBox WordPress Site - Site ID: ${siteId}`,
+                isWordPress: true,
+                siteId,
+            };
 
-        await this.addHostEntry(entry);
+            await this.addHostEntry(entry);
+            console.log(`✅ Added hosts entry: ${hostname} -> ${ip}`);
+        } catch (error) {
+            console.warn(
+                `⚠️  Failed to add hosts entry for ${hostname}:`,
+                error
+            );
+            // Don't throw error - site should still work with localhost
+        }
     }
 
     /**

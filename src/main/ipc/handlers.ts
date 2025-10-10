@@ -154,8 +154,26 @@ export class IPCHandlers {
         ipcMain.handle("sites:open-browser", async (_, siteId: string) => {
             try {
                 const site = await this.wordpressManager.getSite(siteId);
-                if (site && site.port) {
-                    await shell.openExternal(`http://localhost:${site.port}`);
+                if (site) {
+                    // Try custom domain first, then fallback to localhost
+                    let siteUrl = site.url;
+
+                    if (!siteUrl && site.domain) {
+                        siteUrl = `http://${site.domain}`;
+                    }
+
+                    if (!siteUrl && site.port) {
+                        siteUrl = `http://localhost:${site.port}`;
+                    }
+
+                    if (siteUrl) {
+                        console.log(`Opening site ${site.name} at ${siteUrl}`);
+                        await shell.openExternal(siteUrl);
+                    } else {
+                        throw new Error(
+                            `No URL available for site ${site.name}`
+                        );
+                    }
                 }
             } catch (error) {
                 console.error("Failed to open site in browser:", error);

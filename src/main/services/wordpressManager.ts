@@ -5,6 +5,8 @@ import { spawn, ChildProcess } from "child_process";
 import { DockerManager } from "./dockerManager";
 import { LocalServerManager } from "./localServerManager";
 import { HostsFileService } from "./hostsFileService";
+import { PortManager } from "./portManager";
+import { SimpleWordPressManager } from "./simpleWordPressManager";
 import {
     WordPressSite,
     SiteStatus,
@@ -25,11 +27,16 @@ export class WordPressManager {
     private sitesPath: string;
     private dockerManager: DockerManager;
     private localServerManager: LocalServerManager;
+    private portManager: PortManager;
+    private simpleManager: SimpleWordPressManager;
     private useDocker: boolean = false;
+    private useSimpleMode: boolean = true; // Use simple native mode by default
 
     constructor(dockerManager: DockerManager) {
         this.dockerManager = dockerManager;
         this.localServerManager = new LocalServerManager();
+        this.portManager = new PortManager();
+        this.simpleManager = new SimpleWordPressManager();
         this.sitesPath = join(
             process.env.HOME || process.env.USERPROFILE || ".",
             "PressBox",
@@ -46,22 +53,38 @@ export class WordPressManager {
             // Ensure sites directory exists
             await fs.mkdir(this.sitesPath, { recursive: true });
 
-            // Check if Docker is available, otherwise use local server
-            try {
-                await this.dockerManager.initialize();
-                this.useDocker = true;
-                console.log("Using Docker for WordPress environments");
-            } catch (error) {
-                console.log("Docker not available, using local server manager");
-                this.useDocker = false;
-                await this.localServerManager.initialize();
+            if (this.useSimpleMode) {
+                // Use simple native WordPress manager (no Docker)
+                console.log(
+                    "Using Simple Native WordPress Manager (no Docker required)"
+                );
+                await this.simpleManager.initialize();
+                await this.loadSimpleSites();
+            } else {
+                // Check if Docker is available, otherwise use local server
+                try {
+                    await this.dockerManager.initialize();
+                    this.useDocker = true;
+                    console.log("Using Docker for WordPress environments");
+                } catch (error) {
+                    console.log(
+                        "Docker not available, using local server manager"
+                    );
+                    this.useDocker = false;
+                    await this.localServerManager.initialize();
+                }
+
+                // Load existing sites
+                await this.loadSites();
             }
 
-            // Load existing sites
-            await this.loadSites();
-
+            const modeText = this.useSimpleMode
+                ? "Simple Native"
+                : this.useDocker
+                  ? "Docker"
+                  : "Local";
             console.log(
-                `WordPress Manager initialized with ${this.sites.size} sites (${this.useDocker ? "Docker" : "Local"} mode)`
+                `WordPress Manager initialized with ${this.sites.size} sites (${modeText} mode)`
             );
         } catch (error) {
             console.error("Failed to initialize WordPress Manager:", error);
@@ -104,9 +127,27 @@ export class WordPressManager {
     }
 
     /**
+     * Load sites from simple manager
+     */
+    private async loadSimpleSites(): Promise<void> {
+        if (this.useSimpleMode) {
+            const simpleSites = await this.simpleManager.getSites();
+            this.sites.clear();
+
+            for (const site of simpleSites) {
+                this.sites.set(site.id, site);
+            }
+        }
+    }
+
+    /**
      * Get all WordPress sites
      */
     async getSites(): Promise<WordPressSite[]> {
+        if (this.useSimpleMode) {
+            // Refresh from simple manager
+            await this.loadSimpleSites();
+        }
         return Array.from(this.sites.values());
     }
 
@@ -122,91 +163,83 @@ export class WordPressManager {
      */
     async createSite(request: CreateSiteRequest): Promise<WordPressSite> {
         try {
-            // Generate site configuration
-            const siteId = uuidv4();
-            const siteName = this.sanitizeSiteName(request.name);
-            const domain = request.domain || `${siteName}.local`;
-            const sitePath = join(this.sitesPath, siteName);
+            console.log(`🏗 Creating WordPress site: ${request.name}`);
 
-            // Check if site already exists
-            if (await this.siteExists(siteName)) {
-                throw new SiteError(
-                    `Site with name '${siteName}' already exists`
+            if (this.useSimpleMode) {
+                // Use simple native manager
+                const simpleConfig = {
+                    siteName: request.name,
+                    domain: request.domain || `${request.name}.local`,
+                    phpVersion: request.phpVersion,
+                    wordpressVersion: request.wordPressVersion || "latest",
+                    adminUser: request.adminUser || "admin",
+                    adminPassword:
+                        request.adminPassword || this.generatePassword(),
+                    adminEmail: request.adminEmail || "admin@local.dev",
+                };
+
+                const nativeSite =
+                    await this.simpleManager.createSite(simpleConfig);
+
+                // Convert to WordPressSite format
+                const site: WordPressSite = {
+                    id: nativeSite.id,
+                    name: nativeSite.name,
+                    domain: nativeSite.domain,
+                    url: nativeSite.url,
+                    path: nativeSite.path,
+                    port: nativeSite.port,
+                    phpVersion: nativeSite.phpVersion,
+                    wordPressVersion: nativeSite.wordPressVersion,
+                    webServer: "nginx",
+                    database: "mysql",
+                    status: nativeSite.status as SiteStatus,
+                    ssl: false,
+                    multisite: false,
+                    xdebug: false,
+                    created: nativeSite.created,
+                    config: {
+                        phpVersion: nativeSite.phpVersion,
+                        wordPressVersion: nativeSite.wordPressVersion,
+                        dbName: `wp_${nativeSite.name}`,
+                        dbUser: "root",
+                        dbPassword: "",
+                        dbRootPassword: "",
+                        adminUser: simpleConfig.adminUser,
+                        adminPassword: simpleConfig.adminPassword,
+                        adminEmail: simpleConfig.adminEmail,
+                        webServer: "nginx",
+                        ssl: false,
+                        multisite: false,
+                    },
+                };
+
+                // Register domain in hosts file
+                try {
+                    await HostsFileService.addWordPressSiteEntry(
+                        site.id,
+                        site.domain
+                    );
+                } catch (error) {
+                    console.warn(
+                        "Failed to register domain in hosts file:",
+                        error
+                    );
+                }
+
+                // Store in our sites map for compatibility
+                this.sites.set(site.id, site);
+
+                console.log(
+                    `✅ Created WordPress site: ${site.name} at ${site.url}`
                 );
-            }
-
-            // Create site directory
-            await fs.mkdir(sitePath, { recursive: true });
-
-            // Generate site configuration
-            const config: SiteConfig = {
-                phpVersion: request.phpVersion,
-                wordPressVersion: request.wordPressVersion || "latest",
-                dbName: `wp_${siteName}`,
-                dbUser: "wordpress",
-                dbPassword: this.generatePassword(),
-                dbRootPassword: this.generatePassword(),
-                adminUser: request.adminUser || "admin",
-                adminPassword: request.adminPassword || this.generatePassword(),
-                adminEmail: request.adminEmail || "admin@local.dev",
-                webServer: "nginx",
-                ssl: request.ssl || false,
-                multisite: request.multisite || false,
-            };
-
-            // Create site object
-            const site: WordPressSite = {
-                id: siteId,
-                name: siteName,
-                domain,
-                url: domain, // Set url same as domain for backward compatibility
-                path: sitePath,
-                phpVersion: request.phpVersion,
-                wordPressVersion: config.wordPressVersion || "latest",
-                webServer: config.webServer,
-                database: "mysql", // Default to MySQL
-                status: SiteStatus.STOPPED,
-                ssl: config.ssl,
-                multisite: config.multisite,
-                xdebug: false, // Default Xdebug off
-                created: new Date(),
-                config,
-            };
-
-            // Save site configuration
-            await this.saveSiteConfig(site);
-
-            // Create site environment (Docker or Local)
-            if (this.useDocker) {
-                await this.createSiteContainers(site);
+                return site;
             } else {
-                await this.createLocalSite(site);
+                // Original Docker/Local implementation
+                return await this.createSiteOriginal(request);
             }
-
-            // Register domain in hosts file
-            try {
-                await HostsFileService.addHostEntry({
-                    ip: "127.0.0.1",
-                    hostname: domain,
-                    comment: `PressBox WordPress Site - ${siteName} (Site ID: ${siteId})`,
-                    isWordPress: true,
-                    siteId: siteId,
-                });
-                console.log(`Registered domain ${domain} in hosts file`);
-            } catch (error) {
-                console.warn(
-                    `Failed to register domain ${domain} in hosts file:`,
-                    error
-                );
-                // Don't fail site creation if hosts file registration fails
-            }
-
-            // Store site in memory
-            this.sites.set(siteId, site);
-
-            console.log(`Created new WordPress site: ${siteName}`);
-            return site;
         } catch (error) {
+            console.error(`❌ Failed to create site '${request.name}':`, error);
             throw new SiteError(
                 `Failed to create site '${request.name}'`,
                 error
@@ -215,9 +248,104 @@ export class WordPressManager {
     }
 
     /**
+     * Original site creation method (Docker/Local)
+     */
+    private async createSiteOriginal(
+        request: CreateSiteRequest
+    ): Promise<WordPressSite> {
+        // Generate site configuration
+        const siteId = uuidv4();
+        const siteName = this.sanitizeSiteName(request.name);
+        const domain = request.domain || `${siteName}.local`;
+        const sitePath = join(this.sitesPath, siteName);
+
+        // Check if site already exists
+        if (await this.siteExists(siteName)) {
+            throw new SiteError(`Site with name '${siteName}' already exists`);
+        }
+
+        // Create site directory
+        await fs.mkdir(sitePath, { recursive: true });
+
+        // Generate site configuration
+        const config: SiteConfig = {
+            phpVersion: request.phpVersion,
+            wordPressVersion: request.wordPressVersion || "latest",
+            dbName: `wp_${siteName}`,
+            dbUser: "wordpress",
+            dbPassword: this.generatePassword(),
+            dbRootPassword: this.generatePassword(),
+            adminUser: request.adminUser || "admin",
+            adminPassword: request.adminPassword || this.generatePassword(),
+            adminEmail: request.adminEmail || "admin@local.dev",
+            webServer: "nginx",
+            ssl: request.ssl || false,
+            multisite: request.multisite || false,
+        };
+
+        // Create site object
+        const site: WordPressSite = {
+            id: siteId,
+            name: siteName,
+            domain,
+            url: domain,
+            path: sitePath,
+            phpVersion: request.phpVersion,
+            wordPressVersion: config.wordPressVersion || "latest",
+            webServer: config.webServer,
+            database: "mysql",
+            status: SiteStatus.STOPPED,
+            ssl: config.ssl,
+            multisite: config.multisite,
+            xdebug: false,
+            created: new Date(),
+            config,
+        };
+
+        // Save site configuration
+        await this.saveSiteConfig(site);
+
+        // Create site environment (Docker or Local)
+        if (this.useDocker) {
+            await this.createSiteContainers(site);
+        } else {
+            await this.createLocalSite(site);
+        }
+
+        // Register domain in hosts file
+        await HostsFileService.addWordPressSiteEntry(siteId, domain);
+
+        // Store site in memory
+        this.sites.set(siteId, site);
+
+        console.log(`Created new WordPress site: ${siteName}`);
+        return site;
+    }
+
+    /**
      * Start a WordPress site
      */
     async startSite(siteId: string): Promise<void> {
+        if (this.useSimpleMode) {
+            // Use simple manager
+            console.log(`🚀 Starting site via Simple Manager: ${siteId}`);
+            await this.simpleManager.startSite(siteId);
+
+            // Update our local cache
+            const nativeSite = await this.simpleManager.getSite(siteId);
+            if (nativeSite) {
+                const site = this.sites.get(siteId);
+                if (site) {
+                    site.status = nativeSite.status as SiteStatus;
+                    site.lastAccessed = new Date();
+                }
+            }
+
+            console.log(`✅ Started WordPress site via Simple Manager`);
+            return;
+        }
+
+        // Original implementation
         const site = this.sites.get(siteId);
         if (!site) {
             throw new SiteError(`Site with ID '${siteId}' not found`);
@@ -228,14 +356,25 @@ export class WordPressManager {
             await this.saveSiteConfig(site);
 
             if (this.useDocker) {
+                // Ensure port is allocated
+                if (!site.port) {
+                    site.port = await this.portManager.allocatePort(
+                        site.id,
+                        site.name
+                    );
+                    await this.saveSiteConfig(site);
+                }
+
                 // Start database container first
-                await this.dockerManager.startContainer(`${site.name}_db`);
+                await this.dockerManager.startContainer(`${site.name}_mysql`);
 
                 // Wait a bit for database to be ready
-                await this.sleep(3000);
+                await this.sleep(5000);
 
                 // Start web container
-                await this.dockerManager.startContainer(`${site.name}_web`);
+                await this.dockerManager.startContainer(
+                    `${site.name}_wordpress`
+                );
             } else {
                 // Start local server
                 const server = await this.localServerManager.startSite(
@@ -249,7 +388,9 @@ export class WordPressManager {
             site.lastAccessed = new Date();
             await this.saveSiteConfig(site);
 
-            console.log(`Started WordPress site: ${site.name}`);
+            console.log(
+                `Started WordPress site: ${site.name} on port ${site.port}`
+            );
         } catch (error) {
             site.status = SiteStatus.ERROR;
             await this.saveSiteConfig(site);
@@ -261,6 +402,22 @@ export class WordPressManager {
      * Stop a WordPress site
      */
     async stopSite(siteId: string): Promise<void> {
+        if (this.useSimpleMode) {
+            // Use simple manager
+            console.log(`🛑 Stopping site via Simple Manager: ${siteId}`);
+            await this.simpleManager.stopSite(siteId);
+
+            // Update our local cache
+            const site = this.sites.get(siteId);
+            if (site) {
+                site.status = SiteStatus.STOPPED;
+            }
+
+            console.log(`✅ Stopped WordPress site via Simple Manager`);
+            return;
+        }
+
+        // Original implementation
         const site = this.sites.get(siteId);
         if (!site) {
             throw new SiteError(`Site with ID '${siteId}' not found`);
@@ -272,10 +429,12 @@ export class WordPressManager {
 
             if (this.useDocker) {
                 // Stop web container first
-                await this.dockerManager.stopContainer(`${site.name}_web`);
+                await this.dockerManager.stopContainer(
+                    `${site.name}_wordpress`
+                );
 
                 // Stop database container
-                await this.dockerManager.stopContainer(`${site.name}_db`);
+                await this.dockerManager.stopContainer(`${site.name}_mysql`);
             } else {
                 // Stop local server
                 await this.localServerManager.stopSite(site.name);
@@ -283,6 +442,9 @@ export class WordPressManager {
 
             site.status = SiteStatus.STOPPED;
             await this.saveSiteConfig(site);
+
+            // Release port when stopping
+            this.portManager.releasePort(site.id);
 
             console.log(`Stopped WordPress site: ${site.name}`);
         } catch (error) {
@@ -308,8 +470,14 @@ export class WordPressManager {
             }
 
             // Remove containers
-            await this.dockerManager.removeContainer(`${site.name}_web`, true);
-            await this.dockerManager.removeContainer(`${site.name}_db`, true);
+            await this.dockerManager.removeContainer(
+                `${site.name}_wordpress`,
+                true
+            );
+            await this.dockerManager.removeContainer(
+                `${site.name}_mysql`,
+                true
+            );
 
             // Remove site directory
             await fs.rmdir(site.path, { recursive: true });
@@ -453,10 +621,14 @@ export class WordPressManager {
      */
     private async createLocalSite(site: WordPressSite): Promise<void> {
         try {
+            const localPort = await this.portManager.allocatePort(
+                site.id,
+                site.name
+            );
             const localConfig = {
                 siteName: site.name,
                 domain: site.domain,
-                port: await this.findAvailablePort(8080),
+                port: localPort,
                 phpVersion: site.phpVersion,
                 wordpressVersion: site.wordPressVersion,
                 sitePath: site.path,
@@ -487,54 +659,102 @@ export class WordPressManager {
         const { name, config } = site;
 
         try {
-            // Create database container
-            await this.dockerManager.createContainer({
-                name: `${name}_db`,
+            console.log(`Creating Docker containers for site: ${name}`);
+
+            // Ensure site directories exist
+            await fs.mkdir(join(site.path, "database"), { recursive: true });
+            await fs.mkdir(join(site.path, "wordpress"), { recursive: true });
+            await fs.mkdir(join(site.path, "uploads"), { recursive: true });
+
+            // Create Docker network for this site
+            const networkName = `pressbox_${name}`;
+            await this.dockerManager.createNetwork(networkName, {
+                Labels: {
+                    "pressbox.managed": "true",
+                    "pressbox.site": name,
+                },
+            });
+
+            // Get available port using PortManager
+            let webPort = site.port;
+            if (!webPort) {
+                webPort = await this.portManager.allocatePort(
+                    site.id,
+                    site.name
+                );
+                site.port = webPort;
+                await this.saveSiteConfig(site);
+            }
+
+            // Create database container with proper networking
+            const dbContainer = await this.dockerManager.createContainer({
+                name: `${name}_mysql`,
                 image: "mysql:8.0",
                 environment: [
                     `MYSQL_ROOT_PASSWORD=${config.dbRootPassword}`,
                     `MYSQL_DATABASE=${config.dbName}`,
                     `MYSQL_USER=${config.dbUser}`,
                     `MYSQL_PASSWORD=${config.dbPassword}`,
+                    "MYSQL_ALLOW_EMPTY_PASSWORD=0",
+                    "MYSQL_RANDOM_ROOT_PASSWORD=0",
                 ],
                 volumes: [`${site.path}/database:/var/lib/mysql`],
                 labels: {
                     "pressbox.site": name,
-                    "pressbox.service": "database",
+                    "pressbox.service": "mysql",
+                    "pressbox.managed": "true",
                 },
             });
 
-            // Determine available port for web server
-            const webPort = await this.findAvailablePort(8000);
-            site.port = webPort;
+            // Connect database container to network
+            await this.dockerManager.connectToNetwork(
+                networkName,
+                dbContainer.id,
+                [`${name}_mysql`, "mysql", "db"]
+            );
 
-            // Create web container
-            await this.dockerManager.createContainer({
-                name: `${name}_web`,
-                image: `wordpress:php${config.phpVersion}-fpm-alpine`,
+            // Create WordPress container with proper networking
+            const wpContainer = await this.dockerManager.createContainer({
+                name: `${name}_wordpress`,
+                image: `wordpress:php${config.phpVersion || "8.1"}-apache`,
                 ports: {
                     "80/tcp": [{ HostPort: webPort.toString() }],
                 },
                 environment: [
-                    `WORDPRESS_DB_HOST=${name}_db:3306`,
+                    `WORDPRESS_DB_HOST=${name}_mysql:3306`,
                     `WORDPRESS_DB_NAME=${config.dbName}`,
                     `WORDPRESS_DB_USER=${config.dbUser}`,
                     `WORDPRESS_DB_PASSWORD=${config.dbPassword}`,
                     "WORDPRESS_DEBUG=1",
+                    "WORDPRESS_CONFIG_EXTRA=define('WP_DEBUG_LOG', true); define('WP_DEBUG_DISPLAY', false);",
                 ],
-                volumes: [
-                    `${site.path}/wordpress:/var/www/html`,
-                    `${site.path}/uploads:/var/www/html/wp-content/uploads`,
-                ],
+                volumes: [`${site.path}/wordpress:/var/www/html`],
                 labels: {
                     "pressbox.site": name,
-                    "pressbox.service": "web",
+                    "pressbox.service": "wordpress",
+                    "pressbox.managed": "true",
                 },
             });
 
-            // Update site config with port
+            // Connect WordPress container to network
+            await this.dockerManager.connectToNetwork(
+                networkName,
+                wpContainer.id,
+                [`${name}_wordpress`, "wordpress", "web"]
+            );
+
+            console.log(
+                `✅ Created containers for site: ${name} on port ${webPort}`
+            );
+
+            // Update site configuration
+            site.url = `http://${site.domain}`;
             await this.saveSiteConfig(site);
         } catch (error) {
+            console.error(
+                `Failed to create containers for site '${name}':`,
+                error
+            );
             throw new SiteError(
                 `Failed to create containers for site '${name}'`,
                 error
@@ -549,10 +769,10 @@ export class WordPressManager {
         try {
             const containers = await this.dockerManager.getContainers();
             const webContainer = containers.find(
-                (c) => c.name === `${site.name}_web`
+                (c) => c.name === `${site.name}_wordpress`
             );
             const dbContainer = containers.find(
-                (c) => c.name === `${site.name}_db`
+                (c) => c.name === `${site.name}_mysql`
             );
 
             if (webContainer && dbContainer) {

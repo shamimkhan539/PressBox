@@ -121,23 +121,19 @@ export function Dashboard() {
         )
       );
 
-      // Simulate starting the site
-      setTimeout(() => {
-        setSites(prevSites => 
-          prevSites.map(site => 
-            site.id === siteId ? { ...site, status: 'running' } : site
-          )
-        );
-        setStats(prevStats => ({ ...prevStats, runningSites: prevStats.runningSites + 1 }));
-      }, 2000);
+      // Call actual API to start site
+      await window.electronAPI.sites.start(siteId);
 
-      console.log(`Starting site: ${siteId}`);
+      // Reload dashboard data to get updated status
+      await loadDashboardData();
+
+      console.log(`Successfully started site: ${siteId}`);
     } catch (error) {
       console.error('Failed to start site:', error);
       // Revert status on error
       setSites(prevSites => 
         prevSites.map(site => 
-          site.id === siteId ? { ...site, status: 'stopped' } : site
+          site.id === siteId ? { ...site, status: 'error' } : site
         )
       );
     }
@@ -152,31 +148,42 @@ export function Dashboard() {
         )
       );
 
-      // Simulate stopping the site
-      setTimeout(() => {
-        setSites(prevSites => 
-          prevSites.map(site => 
-            site.id === siteId ? { ...site, status: 'stopped' } : site
-          )
-        );
-        setStats(prevStats => ({ ...prevStats, runningSites: Math.max(0, prevStats.runningSites - 1) }));
-      }, 1500);
+      // Call actual API to stop site
+      await window.electronAPI.sites.stop(siteId);
 
-      console.log(`Stopping site: ${siteId}`);
+      // Reload dashboard data to get updated status
+      await loadDashboardData();
+
+      console.log(`Successfully stopped site: ${siteId}`);
     } catch (error) {
       console.error('Failed to stop site:', error);
-      // Revert status on error
+      // Revert status on error  
       setSites(prevSites => 
         prevSites.map(site => 
-          site.id === siteId ? { ...site, status: 'running' } : site
+          site.id === siteId ? { ...site, status: 'error' } : site
         )
       );
     }
   };
 
-  const handleViewSite = (site: WordPressSite) => {
-    if (site.url && site.status === 'running') {
-      (window.electronAPI as any)?.shell?.openExternal(site.url);
+  const handleViewSite = async (site: WordPressSite) => {
+    if (site.status === 'running') {
+      try {
+        // Try to open site URL (custom domain first, then localhost)
+        const siteUrl = site.domain ? `http://${site.domain}` : site.url;
+        
+        if (siteUrl) {
+          await window.electronAPI.sites.openInBrowser(site.id);
+        } else {
+          console.warn('No URL available for site:', site.name);
+        }
+      } catch (error) {
+        console.error('Failed to open site:', error);
+        // Fallback to direct URL opening if available
+        if (site.url) {
+          (window.electronAPI as any)?.shell?.openExternal(site.url);
+        }
+      }
     }
   };
 

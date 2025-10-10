@@ -919,31 +919,6 @@ server {
     }
 
     /**
-     * Create Docker network for site isolation
-     */
-    private async createNetwork(networkName: string): Promise<void> {
-        try {
-            const networks = await this.docker.listNetworks();
-            const existingNetwork = networks.find(
-                (network) => network.Name === networkName
-            );
-
-            if (!existingNetwork) {
-                await this.docker.createNetwork({
-                    Name: networkName,
-                    Driver: "bridge",
-                    Labels: {
-                        "pressbox.managed": "true",
-                    },
-                });
-                console.log(`✅ Created Docker network: ${networkName}`);
-            }
-        } catch (error) {
-            console.error(`Failed to create network ${networkName}:`, error);
-        }
-    }
-
-    /**
      * Wait for MySQL to be ready
      */
     private async waitForMySQL(
@@ -1017,6 +992,78 @@ server {
     }
 
     /**
+     * Create a Docker network
+     */
+    async createNetwork(networkName: string, options?: any): Promise<void> {
+        this.ensureDockerAvailable();
+
+        try {
+            await this.docker.createNetwork({
+                Name: networkName,
+                Driver: "bridge",
+                Labels: {
+                    "pressbox.managed": "true",
+                },
+                ...options,
+            });
+            console.log(`✅ Created Docker network: ${networkName}`);
+        } catch (error: any) {
+            if (!error.message?.includes("already exists")) {
+                throw new PressBoxError(
+                    `Failed to create network ${networkName}`,
+                    "DOCKER_NETWORK_CREATE_ERROR",
+                    { error }
+                );
+            }
+        }
+    }
+
+    /**
+     * Connect container to network
+     */
+    async connectToNetwork(
+        networkName: string,
+        containerId: string,
+        aliases: string[] = []
+    ): Promise<void> {
+        this.ensureDockerAvailable();
+
+        try {
+            const network = this.docker.getNetwork(networkName);
+            await network.connect({
+                Container: containerId,
+                EndpointConfig: {
+                    Aliases: aliases,
+                },
+            });
+            console.log(
+                `✅ Connected container ${containerId} to network ${networkName}`
+            );
+        } catch (error) {
+            throw new PressBoxError(
+                `Failed to connect container ${containerId} to network ${networkName}`,
+                "DOCKER_NETWORK_CONNECT_ERROR",
+                { error }
+            );
+        }
+    }
+
+    /**
+     * Remove a Docker network
+     */
+    async removeNetwork(networkName: string): Promise<void> {
+        this.ensureDockerAvailable();
+
+        try {
+            const network = this.docker.getNetwork(networkName);
+            await network.remove();
+            console.log(`✅ Removed Docker network: ${networkName}`);
+        } catch (error) {
+            console.warn(`Failed to remove network ${networkName}:`, error);
+        }
+    }
+
+    /**
      * Clean up Docker resources for a site
      */
     async cleanupSite(siteName: string): Promise<void> {
@@ -1052,12 +1099,7 @@ server {
 
             // Remove network
             const networkName = `pressbox_${siteName}`;
-            try {
-                const network = this.docker.getNetwork(networkName);
-                await network.remove();
-            } catch (error) {
-                console.warn(`Failed to remove network ${networkName}:`, error);
-            }
+            await this.removeNetwork(networkName);
 
             console.log(`✅ Cleaned up Docker resources for site: ${siteName}`);
         } catch (error) {
