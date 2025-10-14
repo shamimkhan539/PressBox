@@ -23,6 +23,7 @@ import {
     SiteStatus,
     CreateSiteRequest,
 } from "../../shared/types";
+import { DebugLogger } from "./debugLogger";
 
 // Internal site type with process tracking
 interface SimpleWordPressSite {
@@ -109,31 +110,69 @@ export class SimpleWordPressManager {
     private sitesPath: string;
     private tempPath: string;
     private usedPorts: Set<number> = new Set();
+    private logger: DebugLogger;
 
     constructor() {
         this.pressBoxPath = path.join(os.homedir(), "PressBox");
         this.sitesPath = path.join(this.pressBoxPath, "sites");
         this.tempPath = path.join(this.pressBoxPath, "temp");
+        this.logger = new DebugLogger();
+        this.logger.clearLog();
+        this.logger.log("SimpleWordPressManager constructor called");
     }
 
     /**
      * Initialize the WordPress manager
      */
     async initialize(): Promise<void> {
-        console.log("🚀 Initializing Simple WordPress Manager...");
+        try {
+            this.logger.log("🚀 Initializing Simple WordPress Manager...");
+            this.logger.log(`📍 PressBox path: ${this.pressBoxPath}`);
+            this.logger.log(`📍 Sites path: ${this.sitesPath}`);
+            this.logger.log(`📍 Temp path: ${this.tempPath}`);
+            console.log("🚀 Initializing Simple WordPress Manager...");
+            console.log(`📍 PressBox path: ${this.pressBoxPath}`);
+            console.log(`📍 Sites path: ${this.sitesPath}`);
+            console.log(`📍 Temp path: ${this.tempPath}`);
 
-        // Create directory structure
-        await this.createDirectories();
+            // Create directory structure
+            this.logger.log("📁 Creating directories...");
+            console.log("📁 Creating directories...");
+            await this.createDirectories();
+            this.logger.log("✅ Directories created successfully");
+            console.log("✅ Directories created successfully");
 
-        // Check if PHP is available
-        await this.checkPHPAvailability();
+            // Check if PHP is available
+            this.logger.log("🔍 Checking PHP availability...");
+            console.log("🔍 Checking PHP availability...");
+            await this.checkPHPAvailability();
+            this.logger.log("✅ PHP availability checked");
+            console.log("✅ PHP availability checked");
 
-        // Load existing sites
-        await this.loadExistingSites();
+            // Load existing sites
+            this.logger.log("📄 Loading existing sites...");
+            console.log("📄 Loading existing sites...");
+            await this.loadExistingSites();
+            this.logger.log("✅ Existing sites loaded");
+            console.log("✅ Existing sites loaded");
 
-        console.log("✅ Simple WordPress Manager initialized");
-        console.log(`📁 Sites directory: ${this.sitesPath}`);
-        console.log(`📊 Loaded ${this.sites.size} existing sites`);
+            this.logger.log("✅ Simple WordPress Manager initialized");
+            this.logger.log(`📁 Sites directory: ${this.sitesPath}`);
+            this.logger.log(`📊 Loaded ${this.sites.size} existing sites`);
+            console.log("✅ Simple WordPress Manager initialized");
+            console.log(`📁 Sites directory: ${this.sitesPath}`);
+            console.log(`📊 Loaded ${this.sites.size} existing sites`);
+        } catch (error) {
+            this.logger.error(
+                "❌ Failed to initialize Simple WordPress Manager:",
+                error
+            );
+            console.error(
+                "❌ Failed to initialize Simple WordPress Manager:",
+                error
+            );
+            throw error;
+        }
     }
 
     /**
@@ -143,10 +182,20 @@ export class SimpleWordPressManager {
         const directories = [this.pressBoxPath, this.sitesPath, this.tempPath];
 
         for (const dir of directories) {
-            await fs.mkdir(dir, { recursive: true });
+            try {
+                console.log(`   Creating directory: ${dir}`);
+                await fs.mkdir(dir, { recursive: true });
+                console.log(`   ✅ Created: ${dir}`);
+            } catch (error) {
+                console.error(
+                    `   ❌ Failed to create directory ${dir}:`,
+                    error
+                );
+                throw error;
+            }
         }
 
-        console.log("📁 Directories created");
+        console.log("📁 All directories created successfully");
     }
 
     /**
@@ -175,34 +224,52 @@ export class SimpleWordPressManager {
      * Create a new WordPress site
      */
     async createSite(config: SiteConfig): Promise<WordPressSite> {
-        console.log(`🏗 Creating WordPress site: ${config.siteName}`);
-
-        // Generate site ID and paths
-        const siteId = this.generateSiteId();
-        const sitePath = path.join(this.sitesPath, config.siteName);
-        const port = await this.getAvailablePort();
-
-        // Check if site already exists
-        if (await this.siteDirectoryExists(sitePath)) {
-            throw new Error(
-                `Site directory already exists: ${config.siteName}`
-            );
-        }
-
-        // Create site directory
-        await fs.mkdir(sitePath, { recursive: true });
-
         try {
+            console.log(`🏗 Creating WordPress site: ${config.siteName}`);
+            console.log(
+                `📋 Site configuration:`,
+                JSON.stringify(config, null, 2)
+            );
+
+            // Generate site ID and paths
+            console.log(`🔢 Generating site ID...`);
+            const siteId = this.generateSiteId();
+            console.log(`   Site ID: ${siteId}`);
+
+            const sitePath = path.join(this.sitesPath, config.siteName);
+            console.log(`   Site path: ${sitePath}`);
+
+            console.log(`🔌 Getting available port...`);
+            const port = await this.getAvailablePort();
+            console.log(`   Assigned port: ${port}`);
+
+            // Check if site already exists
+            if (await this.siteDirectoryExists(sitePath)) {
+                throw new Error(
+                    `Site directory already exists: ${config.siteName}`
+                );
+            }
+
+            // Create site directory
+            console.log(`📁 Creating site directory...`);
+            await fs.mkdir(sitePath, { recursive: true });
+            console.log(`   ✅ Directory created: ${sitePath}`);
+
             // Download and extract WordPress
+            console.log(`📥 Downloading WordPress...`);
             await this.downloadAndExtractWordPress(
                 config.wordpressVersion,
                 sitePath
             );
+            console.log(`   ✅ WordPress downloaded and extracted`);
 
             // Configure WordPress
+            console.log(`⚙️  Configuring WordPress...`);
             await this.configureWordPress(sitePath, config);
+            console.log(`   ✅ WordPress configured`);
 
             // Create site object
+            console.log(`📝 Creating site object...`);
             const site: SimpleWordPressSite = {
                 id: siteId,
                 name: config.siteName,
@@ -231,9 +298,15 @@ export class SimpleWordPressManager {
 
             return simpleToWordPress(site);
         } catch (error) {
+            console.error(
+                `❌ Failed to create site ${config.siteName}:`,
+                error
+            );
             // Clean up on error
             try {
+                const sitePath = path.join(this.sitesPath, config.siteName);
                 await fs.rmdir(sitePath, { recursive: true });
+                console.log(`🧹 Cleaned up failed site directory: ${sitePath}`);
             } catch (cleanupError) {
                 console.warn("Failed to cleanup site directory:", cleanupError);
             }
@@ -546,12 +619,16 @@ require_once ABSPATH . 'wp-settings.php';
      * Start PHP development server for a site
      */
     private async startPHPServer(site: SimpleWordPressSite): Promise<void> {
+        console.log(`🔧 Starting PHP server for site: ${site.name}`);
         const wpPath = path.join(site.path, "wordpress");
+        console.log(`   WordPress path: ${wpPath}`);
 
         // Check if WordPress directory exists
         try {
             await fs.access(wpPath);
+            console.log(`   ✅ WordPress directory found`);
         } catch (error) {
+            console.error(`   ❌ WordPress directory not found: ${wpPath}`);
             throw new Error(`WordPress directory not found: ${wpPath}`);
         }
 
@@ -567,13 +644,18 @@ require_once ABSPATH . 'wp-settings.php';
             "log_errors=1",
         ];
 
-        console.log(`Starting PHP server: php ${phpArgs.join(" ")}`);
+        console.log(`▶️  Starting PHP server: php ${phpArgs.join(" ")}`);
+        console.log(`   Working directory: ${wpPath}`);
+        console.log(
+            `   Server will run on: http://${site.domain}:${site.port}`
+        );
 
         const phpProcess = spawn("php", phpArgs, {
             cwd: wpPath,
             stdio: ["ignore", "pipe", "pipe"],
         });
 
+        console.log(`   PHP process PID: ${phpProcess.pid}`);
         site.process = phpProcess;
 
         // Handle PHP server output

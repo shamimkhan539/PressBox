@@ -33,15 +33,19 @@ export class WordPressManager {
     private useSimpleMode: boolean = true; // Use simple native mode by default
 
     constructor(dockerManager: DockerManager) {
+        console.log("🌐 WordPressManager constructor called");
         this.dockerManager = dockerManager;
         this.localServerManager = new LocalServerManager();
         this.portManager = new PortManager();
+        console.log("🔧 Creating SimpleWordPressManager instance...");
         this.simpleManager = new SimpleWordPressManager();
+        console.log("✅ SimpleWordPressManager instance created");
         this.sitesPath = join(
             process.env.HOME || process.env.USERPROFILE || ".",
             "PressBox",
             "sites"
         );
+        console.log("🚀 Calling WordPressManager.initialize()...");
         this.initialize();
     }
 
@@ -50,16 +54,26 @@ export class WordPressManager {
      */
     private async initialize(): Promise<void> {
         try {
+            console.log("📁 WordPressManager.initialize() started");
+            console.log(`📍 Sites path: ${this.sitesPath}`);
+            console.log(`🔄 useSimpleMode: ${this.useSimpleMode}`);
+
             // Ensure sites directory exists
+            console.log("📁 Creating sites directory...");
             await fs.mkdir(this.sitesPath, { recursive: true });
+            console.log("✅ Sites directory created");
 
             if (this.useSimpleMode) {
                 // Use simple native WordPress manager (no Docker)
                 console.log(
                     "Using Simple Native WordPress Manager (no Docker required)"
                 );
+                console.log("🚀 Calling simpleManager.initialize()...");
                 await this.simpleManager.initialize();
+                console.log("✅ simpleManager.initialize() completed");
+                console.log("📄 Loading simple sites...");
                 await this.loadSimpleSites();
+                console.log("✅ Simple sites loaded");
             } else {
                 // Check if Docker is available, otherwise use local server
                 try {
@@ -163,9 +177,19 @@ export class WordPressManager {
      */
     async createSite(request: CreateSiteRequest): Promise<WordPressSite> {
         try {
-            console.log(`🏗 Creating WordPress site: ${request.name}`);
+            console.log(
+                `🏗 WordPressManager.createSite called with: ${request.name}`
+            );
+            console.log(`🔧 UseSimpleMode: ${this.useSimpleMode}`);
+            console.log(
+                `🔧 SimpleManager instance:`,
+                this.simpleManager ? "available" : "null"
+            );
 
             if (this.useSimpleMode) {
+                console.log(
+                    `🚀 Using simple native manager for ${request.name}`
+                );
                 // Use simple native manager
                 const simpleConfig = {
                     siteName: request.name,
@@ -178,8 +202,11 @@ export class WordPressManager {
                     adminEmail: request.adminEmail || "admin@local.dev",
                 };
 
+                console.log(`🔧 Simple config prepared:`, simpleConfig);
+                console.log(`🚀 Calling simpleManager.createSite()...`);
                 const nativeSite =
                     await this.simpleManager.createSite(simpleConfig);
+                console.log(`✅ SimpleManager returned:`, nativeSite);
 
                 // Convert to WordPressSite format
                 const site: WordPressSite = {

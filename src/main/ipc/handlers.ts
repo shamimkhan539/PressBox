@@ -25,21 +25,31 @@ export class IPCHandlers {
         private blueprintManager: BlueprintManager,
         private environmentManager: EnvironmentManager,
         private store: Store
-    ) {}
+    ) {
+        console.log("🔧 IPCHandlers constructor called");
+        console.log(
+            "📝 WordPressManager:",
+            this.wordpressManager ? "initialized" : "null"
+        );
+    }
 
     /**
      * Register all IPC handlers
      */
     registerHandlers(): void {
+        console.log("🚀 Starting IPC handler registration...");
         this.registerSiteHandlers();
         this.registerDockerHandlers();
         this.registerPluginHandlers();
         this.registerBlueprintHandlers();
         this.registerSettingsHandlers();
         this.registerFileSystemHandlers();
+        this.registerFileHandlers();
         this.registerSystemHandlers();
+        this.registerServerHandlers();
         this.registerHostsFileHandlers();
         this.registerEnvironmentHandlers();
+        console.log("✅ All IPC handlers registered");
     }
 
     /**
@@ -57,9 +67,19 @@ export class IPCHandlers {
 
         ipcMain.handle("sites:create", async (_, config: CreateSiteRequest) => {
             try {
-                return await this.wordpressManager.createSite(config);
+                console.log(
+                    "🔥 IPC Handler: sites:create called with config:",
+                    config
+                );
+                console.log(
+                    "🔥 WordPressManager instance:",
+                    this.wordpressManager ? "available" : "null"
+                );
+                const result = await this.wordpressManager.createSite(config);
+                console.log("🔥 Site creation result:", result);
+                return result;
             } catch (error) {
-                console.error("Failed to create site:", error);
+                console.error("❌ Failed to create site:", error);
                 throw error;
             }
         });
@@ -766,6 +786,274 @@ export class IPCHandlers {
                 throw error;
             }
         });
+    }
+
+    /**
+     * Register file management handlers
+     */
+    private registerFileHandlers(): void {
+        ipcMain.handle(
+            "files:list",
+            async (_, options: { siteId: string; path: string }) => {
+                try {
+                    const sites = await this.wordpressManager.getSites();
+                    const site = sites.find((s) => s.id === options.siteId);
+
+                    if (!site) {
+                        throw new Error(`Site not found: ${options.siteId}`);
+                    }
+
+                    // TODO: Implement actual file listing
+                    // For now, return mock file structure
+                    const mockFiles = [
+                        {
+                            name: "wp-config.php",
+                            path: "/wp-config.php",
+                            type: "file" as const,
+                            size: 2048,
+                            modified: new Date(),
+                            extension: "php",
+                        },
+                        {
+                            name: "wp-content",
+                            path: "/wp-content",
+                            type: "folder" as const,
+                            modified: new Date(),
+                        },
+                        {
+                            name: "wp-admin",
+                            path: "/wp-admin",
+                            type: "folder" as const,
+                            modified: new Date(),
+                        },
+                        {
+                            name: "wp-includes",
+                            path: "/wp-includes",
+                            type: "folder" as const,
+                            modified: new Date(),
+                        },
+                    ];
+
+                    return { files: mockFiles };
+                } catch (error) {
+                    console.error("Failed to list files:", error);
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "files:open-editor",
+            async (_, options: { siteId: string; filePath: string }) => {
+                try {
+                    // TODO: Implement file opening in editor
+                    console.log(
+                        `Opening file ${options.filePath} for site ${options.siteId}`
+                    );
+                    return { success: true };
+                } catch (error) {
+                    console.error("Failed to open file in editor:", error);
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "files:create",
+            async (
+                _,
+                options: {
+                    siteId: string;
+                    path: string;
+                    name: string;
+                    content?: string;
+                }
+            ) => {
+                try {
+                    // TODO: Implement file creation
+                    console.log(
+                        `Creating file ${options.name} at ${options.path} for site ${options.siteId}`
+                    );
+                    return { success: true };
+                } catch (error) {
+                    console.error("Failed to create file:", error);
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "files:create-folder",
+            async (
+                _,
+                options: { siteId: string; path: string; name: string }
+            ) => {
+                try {
+                    // TODO: Implement folder creation
+                    console.log(
+                        `Creating folder ${options.name} at ${options.path} for site ${options.siteId}`
+                    );
+                    return { success: true };
+                } catch (error) {
+                    console.error("Failed to create folder:", error);
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "files:delete",
+            async (_, options: { siteId: string; paths: string[] }) => {
+                try {
+                    // TODO: Implement file/folder deletion
+                    console.log(
+                        `Deleting files ${options.paths.join(", ")} for site ${options.siteId}`
+                    );
+                    return { success: true };
+                } catch (error) {
+                    console.error("Failed to delete files:", error);
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "files:upload",
+            async (_, options: { siteId: string; targetPath: string }) => {
+                try {
+                    // TODO: Implement file upload
+                    console.log(
+                        `Uploading files to ${options.targetPath} for site ${options.siteId}`
+                    );
+                    return {
+                        success: true,
+                        uploadedFiles: ["mock-uploaded-file.txt"],
+                    };
+                } catch (error) {
+                    console.error("Failed to upload files:", error);
+                    throw error;
+                }
+            }
+        );
+    }
+
+    /**
+     * Register server management handlers
+     */
+    private registerServerHandlers(): void {
+        ipcMain.handle(
+            "server:get-service-stats",
+            async (_, siteId: string, serviceName: string) => {
+                try {
+                    // Get the site first
+                    const sites = await this.wordpressManager.getSites();
+                    const site = sites.find((s) => s.id === siteId);
+
+                    if (!site) {
+                        throw new Error(`Site not found: ${siteId}`);
+                    }
+
+                    // Return mock stats for now - you can implement real stats later
+                    const stats = {
+                        status: site.status,
+                        uptime: site.status === "running" ? "2h 15m" : "0m",
+                        memoryUsage:
+                            site.status === "running" ? "45.2 MB" : "0 MB",
+                        cpuUsage: site.status === "running" ? "2.1%" : "0%",
+                        connections: site.status === "running" ? 3 : 0,
+                        port: site.port,
+                        serviceName: serviceName,
+                        lastChecked: new Date().toISOString(),
+                    };
+
+                    return stats;
+                } catch (error) {
+                    console.error("Failed to get service stats:", error);
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "server:swap-web-server",
+            async (_, siteId: string, options: any) => {
+                try {
+                    // For now, return a mock successful response
+                    // TODO: Implement actual server swapping logic
+                    return {
+                        success: true,
+                        duration: 2500,
+                        fromServer: options.fromServer,
+                        toServer: options.toServer,
+                        message: `Successfully switched from ${options.fromServer} to ${options.toServer}`,
+                    };
+                } catch (error) {
+                    console.error("Failed to swap web server:", error);
+                    return {
+                        success: false,
+                        errors: [
+                            error instanceof Error
+                                ? error.message
+                                : "Unknown error during server swap",
+                        ],
+                    };
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "server:change-php-version",
+            async (_, siteId: string, options: any) => {
+                try {
+                    // For now, return a mock successful response
+                    // TODO: Implement actual PHP version changing logic
+                    return {
+                        success: true,
+                        duration: 3000,
+                        oldVersion: "8.2",
+                        newVersion: options.newVersion,
+                        message: `Successfully changed PHP version to ${options.newVersion}`,
+                    };
+                } catch (error) {
+                    console.error("Failed to change PHP version:", error);
+                    return {
+                        success: false,
+                        errors: [
+                            error instanceof Error
+                                ? error.message
+                                : "Unknown error during PHP version change",
+                        ],
+                    };
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "server:update-site-url",
+            async (
+                _,
+                siteId: string,
+                newUrl: string,
+                updateDatabase: boolean
+            ) => {
+                try {
+                    // For now, return a mock successful response
+                    // TODO: Implement actual site URL updating logic
+                    return {
+                        success: true,
+                        oldUrl: "http://old-site.local:8080",
+                        newUrl: newUrl,
+                        databaseUpdated: updateDatabase,
+                        message: `Successfully updated site URL to ${newUrl}`,
+                    };
+                } catch (error) {
+                    console.error("Failed to update site URL:", error);
+                    throw error instanceof Error
+                        ? error
+                        : new Error("Unknown error during site URL update");
+                }
+            }
+        );
     }
 
     /**

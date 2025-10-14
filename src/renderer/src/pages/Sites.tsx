@@ -165,13 +165,14 @@ export function Sites() {
 
   const handleOpenSite = (site: WordPressSite) => {
     if (site.status === SiteStatus.RUNNING) {
-      const url = site.domain.startsWith('http') ? site.domain : `http://${site.domain}`;
+      // Construct proper URL with port
+      const url = site.url || `http://${site.domain}:${site.port || 8080}`;
       (window.electronAPI as any).shell.openExternal(url);
       
-      // Show informative message
+      // Show success message
       setTimeout(() => {
-        setSuccessMessage(`Opened ${site.name} at ${url}. Note: This is a development version - full Docker integration will start actual WordPress sites.`);
-        setTimeout(() => setSuccessMessage(null), 8000);
+        setSuccessMessage(`Opened ${site.name} at ${url}. Your WordPress site is now accessible in your browser!`);
+        setTimeout(() => setSuccessMessage(null), 6000);
       }, 500);
     } else if (site.status === SiteStatus.STOPPED) {
       setError(`Site "${site.name}" is stopped. Please start it first to access the website.`);

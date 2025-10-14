@@ -131,10 +131,28 @@ function App() {
 
   // Check admin privileges on startup
   useEffect(() => {
+    const waitForElectronAPI = (): Promise<void> => {
+      return new Promise((resolve) => {
+        const checkAPI = () => {
+          if (window.electronAPI && 
+              window.electronAPI.system && 
+              typeof window.electronAPI.system.checkAdmin === 'function') {
+            resolve();
+          } else {
+            setTimeout(checkAPI, 100);
+          }
+        };
+        checkAPI();
+      });
+    };
+
     const checkAdminPrivileges = async () => {
       if (hasCheckedAdmin) return;
 
       try {
+        // Wait for Electron API to be ready
+        await waitForElectronAPI();
+        
         const adminStatus = await window.electronAPI.system.checkAdmin();
         setHasCheckedAdmin(true);
         

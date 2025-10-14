@@ -31,16 +31,33 @@ class PressBoxApp {
     private ipcHandlers: IPCHandlers;
 
     constructor() {
+        console.log("🚀 PressBox Main Process Starting...");
+
+        console.log("🔧 Creating Store...");
         this.store = new Store();
+
+        console.log("🐳 Creating DockerManager...");
         this.dockerManager = DockerManager.getInstance();
+
+        console.log("🌐 Creating WordPressManager...");
         this.wordPressManager = new WordPressManager(this.dockerManager);
+
+        console.log("🔌 Creating PluginManager...");
         this.pluginManager = new PluginManager();
+
+        console.log("📦 Creating ExportManager...");
         this.exportManager = new ExportManager(this.dockerManager);
+
+        console.log("🌍 Creating EnvironmentManager...");
         this.environmentManager = EnvironmentManager.getInstance();
+
+        console.log("📋 Creating BlueprintManager...");
         this.blueprintManager = new BlueprintManager(
             this.dockerManager,
             this.wordPressManager
         );
+
+        console.log("📡 Creating IPCHandlers...");
         this.ipcHandlers = new IPCHandlers(
             this.wordPressManager,
             this.dockerManager,
@@ -54,12 +71,21 @@ class PressBoxApp {
     }
 
     private async init(): Promise<void> {
+        console.log("⏳ Waiting for app ready...");
         // Handle app ready
         await app.whenReady();
+        console.log("✅ App is ready!");
 
+        console.log("🪟 Creating main window...");
         this.createWindow();
+
+        console.log("📡 Setting up IPC...");
         this.setupIPC();
+
+        console.log("📋 Setting up menu...");
         this.setupMenu();
+
+        console.log("🔄 Setting up auto updater...");
         this.setupAutoUpdater();
 
         // Initialize services
@@ -109,7 +135,10 @@ class PressBoxApp {
                 nodeIntegration: false,
                 contextIsolation: true,
                 // enableRemoteModule: false, // Deprecated
-                preload: join(__dirname, "../preload/preload.js"),
+                preload:
+                    process.env.NODE_ENV === "development"
+                        ? join(__dirname, "../../dist/main/preload/preload.js")
+                        : join(__dirname, "../preload/preload.js"),
                 webSecurity: true,
             },
             icon: join(__dirname, "../../assets/icon.png"),
@@ -142,8 +171,10 @@ class PressBoxApp {
     }
 
     private setupIPC(): void {
+        console.log("📡 Setting up IPC handlers...");
         // Register all IPC handlers
         this.ipcHandlers.registerHandlers();
+        console.log("✅ IPC handlers registered successfully");
     }
 
     private setupMenu(): void {

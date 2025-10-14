@@ -79,6 +79,34 @@ export interface ElectronAPI {
         exists: (path: string) => Promise<boolean>;
     };
 
+    // File Management Operations
+    files: {
+        list: (options: {
+            siteId: string;
+            path: string;
+        }) => Promise<{ files: FileItem[] }>;
+        openEditor: (options: {
+            siteId: string;
+            filePath: string;
+        }) => Promise<void>;
+        create: (options: {
+            siteId: string;
+            path: string;
+            name: string;
+            content?: string;
+        }) => Promise<void>;
+        createFolder: (options: {
+            siteId: string;
+            path: string;
+            name: string;
+        }) => Promise<void>;
+        delete: (options: { siteId: string; paths: string[] }) => Promise<void>;
+        upload: (options: {
+            siteId: string;
+            targetPath: string;
+        }) => Promise<{ success: boolean; uploadedFiles: string[] }>;
+    };
+
     // System Information
     system: {
         getVersion: () => Promise<string>;
@@ -261,6 +289,15 @@ interface DockerContainer {
     created: Date;
 }
 
+interface FileItem {
+    name: string;
+    path: string;
+    type: "file" | "folder";
+    size?: number;
+    modified?: Date;
+    extension?: string;
+}
+
 interface PluginInfo {
     id: string;
     name: string;
@@ -360,6 +397,18 @@ const electronAPI: ElectronAPI = {
         selectFile: (filters) => ipcRenderer.invoke("fs:select-file", filters),
         openPath: (path) => ipcRenderer.invoke("fs:open-path", path),
         exists: (path) => ipcRenderer.invoke("fs:exists", path),
+    },
+
+    // File Management Operations
+    files: {
+        list: (options) => ipcRenderer.invoke("files:list", options),
+        openEditor: (options) =>
+            ipcRenderer.invoke("files:open-editor", options),
+        create: (options) => ipcRenderer.invoke("files:create", options),
+        createFolder: (options) =>
+            ipcRenderer.invoke("files:create-folder", options),
+        delete: (options) => ipcRenderer.invoke("files:delete", options),
+        upload: (options) => ipcRenderer.invoke("files:upload", options),
     },
 
     // System Information
