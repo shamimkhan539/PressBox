@@ -79,6 +79,12 @@ export interface ElectronAPI {
         exists: (path: string) => Promise<boolean>;
     };
 
+    // Shell Operations
+    shell: {
+        openExternal: (url: string) => Promise<{ success: boolean }>;
+        openPath: (path: string) => Promise<{ success: boolean }>;
+    };
+
     // File Management Operations
     files: {
         list: (options: {
@@ -431,6 +437,12 @@ const electronAPI: ElectronAPI = {
         selectFile: (filters) => ipcRenderer.invoke("fs:select-file", filters),
         openPath: (path) => ipcRenderer.invoke("fs:open-path", path),
         exists: (path) => ipcRenderer.invoke("fs:exists", path),
+    },
+
+    // Shell Operations
+    shell: {
+        openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),
+        openPath: (path) => ipcRenderer.invoke("shell:open-path", path),
     },
 
     // File Management Operations

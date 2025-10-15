@@ -723,7 +723,7 @@ require_once ABSPATH . 'wp-settings.php';
         });
 
         console.log(`🔧 Starting PHP server for site: ${site.name}`);
-        const wpPath = path.join(site.path, "wordpress");
+        const wpPath = site.path; // WordPress files are directly in site path
         console.log(`   WordPress path: ${wpPath}`);
 
         // Check if WordPress directory exists
@@ -736,22 +736,25 @@ require_once ABSPATH . 'wp-settings.php';
         }
 
         // Start PHP built-in server
+        // Use localhost instead of custom domain for PHP server binding
         const phpArgs = [
             "-S",
-            `${site.domain}:${site.port}`,
+            `localhost:${site.port}`,
             "-t",
             wpPath,
             "-d",
             "display_errors=1",
             "-d",
             "log_errors=1",
+            "-d",
+            "extension=mysqli",
+            "-d",
+            "extension=pdo_mysql",
         ];
 
         console.log(`▶️  Starting PHP server: php ${phpArgs.join(" ")}`);
         console.log(`   Working directory: ${wpPath}`);
-        console.log(
-            `   Server will run on: http://${site.domain}:${site.port}`
-        );
+        console.log(`   Server will run on: ${site.url}`);
 
         const phpProcess = spawn("php", phpArgs, {
             cwd: wpPath,
@@ -805,8 +808,9 @@ require_once ABSPATH . 'wp-settings.php';
             try {
                 await new Promise((resolve) => setTimeout(resolve, delay));
 
-                // Try to connect to the server
-                const testUrl = `http://${site.domain}:${site.port}`;
+                // Try to connect to the server - always use localhost for connection test
+                const testUrl = `http://localhost:${site.port}`;
+                console.log(`   Testing connection to: ${testUrl}`);
                 await this.testConnection(testUrl);
 
                 console.log(`✅ PHP server is ready after ${attempt} attempts`);

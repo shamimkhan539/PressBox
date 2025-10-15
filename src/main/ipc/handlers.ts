@@ -64,12 +64,11 @@ export class IPCHandlers {
 
     /**
      * Register Non-Admin Mode IPC handlers
+     * Note: Non-admin handlers are now registered in registerSettingsHandlers()
      */
     registerNonAdminHandlers(): void {
-        const { ipcMain } = require("electron");
-        ipcMain.handle("nonadmin:should-prompt-user", async () => {
-            return NonAdminMode.shouldPromptUser();
-        });
+        // Handlers moved to registerSettingsHandlers to avoid duplication
+        console.log("✅ Non-admin handlers registered via settings handlers");
     }
 
     /**
@@ -582,6 +581,27 @@ export class IPCHandlers {
                 return true;
             } catch {
                 return false;
+            }
+        });
+
+        // Shell operations
+        ipcMain.handle("shell:open-external", async (_, url: string) => {
+            try {
+                await shell.openExternal(url);
+                return { success: true };
+            } catch (error) {
+                console.error("Failed to open external URL:", error);
+                return { success: false, error: String(error) };
+            }
+        });
+
+        ipcMain.handle("shell:open-path", async (_, path: string) => {
+            try {
+                const result = await shell.openPath(path);
+                return { success: !result, error: result || undefined };
+            } catch (error) {
+                console.error("Failed to open path:", error);
+                return { success: false, error: String(error) };
             }
         });
     }
