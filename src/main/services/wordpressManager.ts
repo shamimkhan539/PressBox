@@ -7,6 +7,7 @@ import { LocalServerManager } from "./localServerManager";
 import { HostsFileService } from "./hostsFileService";
 import { PortManager } from "./portManager";
 import { SimpleWordPressManager } from "./simpleWordPressManager";
+import { NonAdminMode } from "./nonAdminMode";
 import {
     WordPressSite,
     SiteStatus,
@@ -241,16 +242,25 @@ export class WordPressManager {
                     },
                 };
 
-                // Register domain in hosts file
-                try {
-                    await HostsFileService.addWordPressSiteEntry(
-                        site.id,
-                        site.domain
-                    );
-                } catch (error) {
-                    console.warn(
-                        "Failed to register domain in hosts file:",
-                        error
+                // Register domain in hosts file (only if not in non-admin mode)
+                if (!NonAdminMode.shouldBlockAdminOperations()) {
+                    try {
+                        await HostsFileService.addWordPressSiteEntry(
+                            site.id,
+                            site.domain
+                        );
+                        console.log(
+                            `✅ Registered domain ${site.domain} in hosts file`
+                        );
+                    } catch (error) {
+                        console.warn(
+                            "Failed to register domain in hosts file:",
+                            error
+                        );
+                    }
+                } else {
+                    console.log(
+                        `🔓 Skipping hosts file registration for ${site.domain} (non-admin mode)`
                     );
                 }
 
@@ -339,8 +349,19 @@ export class WordPressManager {
             await this.createLocalSite(site);
         }
 
-        // Register domain in hosts file
-        await HostsFileService.addWordPressSiteEntry(siteId, domain);
+        // Register domain in hosts file (only if not in non-admin mode)
+        if (!NonAdminMode.shouldBlockAdminOperations()) {
+            try {
+                await HostsFileService.addWordPressSiteEntry(siteId, domain);
+                console.log(`✅ Registered domain ${domain} in hosts file`);
+            } catch (error) {
+                console.warn("Failed to register domain in hosts file:", error);
+            }
+        } else {
+            console.log(
+                `🔓 Skipping hosts file registration for ${domain} (non-admin mode)`
+            );
+        }
 
         // Store site in memory
         this.sites.set(siteId, site);
@@ -509,16 +530,24 @@ export class WordPressManager {
             // Remove site directory
             await fs.rmdir(site.path, { recursive: true });
 
-            // Remove domain from hosts file
-            try {
-                await HostsFileService.removeHostEntry(site.domain);
-                console.log(`Removed domain ${site.domain} from hosts file`);
-            } catch (error) {
-                console.warn(
-                    `Failed to remove domain ${site.domain} from hosts file:`,
-                    error
+            // Remove domain from hosts file (only if not in non-admin mode)
+            if (!NonAdminMode.shouldBlockAdminOperations()) {
+                try {
+                    await HostsFileService.removeHostEntry(site.domain);
+                    console.log(
+                        `✅ Removed domain ${site.domain} from hosts file`
+                    );
+                } catch (error) {
+                    console.warn(
+                        `Failed to remove domain ${site.domain} from hosts file:`,
+                        error
+                    );
+                    // Don't fail site deletion if hosts file cleanup fails
+                }
+            } else {
+                console.log(
+                    `🔓 Skipping hosts file cleanup for ${site.domain} (non-admin mode)`
                 );
-                // Don't fail site deletion if hosts file cleanup fails
             }
 
             // Remove from memory

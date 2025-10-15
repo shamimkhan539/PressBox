@@ -10,6 +10,7 @@ import { BlueprintManager } from "./services/blueprintManager";
 import { EnvironmentManager } from "./services/environmentManager";
 import { IPCHandlers } from "./ipc/handlers";
 import { createApplicationMenu } from "./menu";
+import { NonAdminMode } from "./services/nonAdminMode";
 
 /**
  * PressBox Main Process
@@ -33,14 +34,61 @@ class PressBoxApp {
     constructor() {
         console.log("🚀 PressBox Main Process Starting...");
 
+        // Write to file to ensure we can see logs
+        const fs = require("fs");
+        const path = require("path");
+        const logPath = path.join(
+            process.env.HOME || process.env.USERPROFILE || ".",
+            "PressBox",
+            "main-process.log"
+        );
+        fs.mkdirSync(path.dirname(logPath), { recursive: true });
+        fs.writeFileSync(
+            logPath,
+            `${new Date().toISOString()} - PressBox Main Process Starting...\n`,
+            { flag: "a" }
+        );
+
         console.log("🔧 Creating Store...");
         this.store = new Store();
+        fs.writeFileSync(
+            logPath,
+            `${new Date().toISOString()} - Store created\n`,
+            { flag: "a" }
+        );
+
+        console.log("⚙️ Initializing NonAdminMode settings...");
+        NonAdminMode.initialize();
+        fs.writeFileSync(
+            logPath,
+            `${new Date().toISOString()} - NonAdminMode initialized\n`,
+            { flag: "a" }
+        );
+
+        // Early check to prevent admin operations during startup
+        if (NonAdminMode.shouldBlockAdminOperations()) {
+            console.log(
+                "🔓 Admin operations blocked - running in non-admin mode"
+            );
+        } else {
+            console.log("🔒 Admin operations allowed - running in admin mode");
+        }
 
         console.log("🐳 Creating DockerManager...");
         this.dockerManager = DockerManager.getInstance();
 
         console.log("🌐 Creating WordPressManager...");
+        fs.writeFileSync(
+            logPath,
+            `${new Date().toISOString()} - Creating WordPressManager...\n`,
+            { flag: "a" }
+        );
         this.wordPressManager = new WordPressManager(this.dockerManager);
+        fs.writeFileSync(
+            logPath,
+            `${new Date().toISOString()} - WordPressManager created\n`,
+            { flag: "a" }
+        );
 
         console.log("🔌 Creating PluginManager...");
         this.pluginManager = new PluginManager();
@@ -58,6 +106,11 @@ class PressBoxApp {
         );
 
         console.log("📡 Creating IPCHandlers...");
+        fs.writeFileSync(
+            logPath,
+            `${new Date().toISOString()} - Creating IPCHandlers...\n`,
+            { flag: "a" }
+        );
         this.ipcHandlers = new IPCHandlers(
             this.wordPressManager,
             this.dockerManager,
@@ -65,6 +118,11 @@ class PressBoxApp {
             this.blueprintManager,
             this.environmentManager,
             this.store
+        );
+        fs.writeFileSync(
+            logPath,
+            `${new Date().toISOString()} - IPCHandlers created\n`,
+            { flag: "a" }
         );
 
         this.init();
@@ -137,7 +195,7 @@ class PressBoxApp {
                 // enableRemoteModule: false, // Deprecated
                 preload:
                     process.env.NODE_ENV === "development"
-                        ? join(__dirname, "../../dist/main/preload/preload.js")
+                        ? join(__dirname, "../preload/preload.js")
                         : join(__dirname, "../preload/preload.js"),
                 webSecurity: true,
             },

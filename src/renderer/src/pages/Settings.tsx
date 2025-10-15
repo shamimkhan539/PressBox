@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ModeInfo } from '../components/ModeInfo';
 
 interface AppSettings {
   theme: 'light' | 'dark' | 'system';
@@ -196,6 +197,17 @@ export function Settings() {
               </label>
             </div>
           </div>
+        </div>
+
+        {/* Admin Mode Settings */}
+        <div className="card p-6">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+            Admin Mode Settings
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            Configure how PressBox handles system permissions and domain management.
+          </p>
+          <ModeInfo className="mt-4" />
         </div>
 
         {/* Docker Settings */}

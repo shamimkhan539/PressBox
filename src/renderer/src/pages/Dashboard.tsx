@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CreateSiteModal } from '../components/CreateSiteModal.tsx';
 import { ImportSiteModal } from '../components/ImportSiteModal.tsx';
@@ -64,6 +64,12 @@ export function Dashboard() {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
+      // Check if electronAPI is available
+      if (!window.electronAPI || !window.electronAPI.sites) {
+        console.error('electronAPI not available');
+        return;
+      }
+      
       // Load sites from real API
       const sitesList = await window.electronAPI.sites.list();
       setSites(sitesList);
@@ -95,10 +101,10 @@ export function Dashboard() {
     setShowCreateModal(true);
   };
 
-  const handleSiteCreated = () => {
+  const handleSiteCreated = useCallback(() => {
     // Refresh dashboard data after creating a site
     loadDashboardData();
-  };
+  }, []);
 
   const handleSiteImported = () => {
     loadDashboardData(); // Refresh data after importing site

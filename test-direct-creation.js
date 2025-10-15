@@ -10,10 +10,10 @@ async function testSiteCreation() {
         // Import the SimpleWordPressManager
         const {
             WordPressManager,
-        } = require("./dist/main/services/wordpressManager.js");
+        } = require("./dist/main/main/services/wordpressManager.js");
         const {
             DockerManager,
-        } = require("./dist/main/services/dockerManager.js");
+        } = require("./dist/main/main/services/dockerManager.js");
 
         console.log("✅ Imported WordPressManager successfully");
 

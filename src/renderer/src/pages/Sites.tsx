@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   TrashIcon, 
   CloudArrowUpIcon, 
@@ -38,6 +38,7 @@ import { SecurityScanner } from '../components/SecurityScanner.tsx';
 import { DatabaseBrowser } from '../components/DatabaseBrowser.tsx';
 import { ExportWizard, ImportWizard } from '../components';
 import { WordPressSite, SiteStatus } from '../../../shared/types';
+import { waitForElectronAPI, isElectronAPIReady } from '../utils/electronApi';
 
 /**
  * Sites Page Component
@@ -50,27 +51,48 @@ export function Sites() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadSites();
-    
+    loadSites(true); // Initial load with loading state
+
     // Poll for site status updates every 5 seconds
     const interval = setInterval(() => {
-      loadSites();
+      loadSites(false); // Polling updates without loading state
     }, 5000);
 
     return () => clearInterval(interval);
   }, []);
 
-  const loadSites = async () => {
+  const loadSites = async (showLoading = false) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       setError(null);
+
+      // Wait for electronAPI to be available
+      if (!isElectronAPIReady()) {
+        console.log('⏳ Waiting for Electron API...');
+        await waitForElectronAPI(5000);
+        console.log('✅ Electron API is ready');
+      }
+
       const sitesData = await window.electronAPI.sites.list();
-      setSites(sitesData);
+
+      // Only update state if data has actually changed
+      setSites(prevSites => {
+        const hasChanged = JSON.stringify(prevSites) !== JSON.stringify(sitesData);
+        return hasChanged ? sitesData : prevSites;
+      });
     } catch (err) {
       console.error('Failed to load sites:', err);
-      setError('Failed to load sites. Please try again.');
+      if (err instanceof Error && err.message.includes('Timeout')) {
+        setError('Application is loading. Please wait and refresh if needed.');
+      } else {
+        setError('Failed to load sites. Please try again.');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   };
 
@@ -117,9 +139,9 @@ export function Sites() {
     setShowCreateModal(true);
   };
 
-  const handleSiteCreated = () => {
+  const handleSiteCreated = useCallback(() => {
     loadSites(); // Refresh sites list
-  };
+  }, []);
 
   const handleSiteAction = async (siteId: string, action: 'start' | 'stop' | 'restart' | 'delete') => {
     try {
@@ -320,7 +342,7 @@ export function Sites() {
             </svg>
             <p className="text-lg font-medium">{error}</p>
           </div>
-          <button onClick={loadSites} className="btn-primary">
+          <button onClick={() => loadSites(true)} className="btn-primary">
             Try Again
           </button>
         </div>

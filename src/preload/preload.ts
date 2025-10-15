@@ -241,6 +241,40 @@ export interface ElectronAPI {
         ) => Promise<boolean>;
     };
 
+    // Non-Admin Mode Management
+    nonAdminMode: {
+        getStatus: () => Promise<{
+            enabled: boolean;
+            hasUserMadeChoice: boolean;
+            lastChoice: "admin" | "non-admin";
+            explanation: {
+                mode: string;
+                description: string;
+                urls: string;
+                adminRequired: boolean;
+            };
+        }>;
+        shouldPromptUser: () => Promise<boolean>;
+        enable: () => Promise<{
+            mode: string;
+            description: string;
+            urls: string;
+            adminRequired: boolean;
+        }>;
+        disable: () => Promise<{
+            mode: string;
+            description: string;
+            urls: string;
+            adminRequired: boolean;
+        }>;
+        resetPreferences: () => Promise<{
+            mode: string;
+            description: string;
+            urls: string;
+            adminRequired: boolean;
+        }>;
+    };
+
     // Events
     on: (channel: string, callback: (...args: any[]) => void) => void;
     off: (channel: string, callback: (...args: any[]) => void) => void;
@@ -485,6 +519,17 @@ const electronAPI: ElectronAPI = {
                 fromEnvironment,
                 toEnvironment
             ),
+    },
+
+    // Non-Admin Mode Management
+    nonAdminMode: {
+        getStatus: () => ipcRenderer.invoke("nonadmin:get-status"),
+        shouldPromptUser: () =>
+            ipcRenderer.invoke("nonadmin:should-prompt-user"),
+        enable: () => ipcRenderer.invoke("nonadmin:enable"),
+        disable: () => ipcRenderer.invoke("nonadmin:disable"),
+        resetPreferences: () =>
+            ipcRenderer.invoke("nonadmin:reset-preferences"),
     },
 
     // Event Handling

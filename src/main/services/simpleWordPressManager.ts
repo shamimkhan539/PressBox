@@ -18,12 +18,24 @@ import { createWriteStream, createReadStream } from "fs";
 const streamPipeline = promisify(pipeline);
 const execAsync = promisify(require("child_process").exec);
 
+// Import adm-zip for WordPress extraction
+let AdmZip: any;
+try {
+    AdmZip = require("adm-zip");
+} catch (error) {
+    console.warn(
+        "⚠️  adm-zip not available, will use basic structure creation"
+    );
+}
+
 import {
     WordPressSite,
     SiteStatus,
     CreateSiteRequest,
 } from "../../shared/types";
 import { DebugLogger } from "./debugLogger";
+import { NonAdminMode } from "./nonAdminMode";
+import { FileLogger } from "./fileLogger";
 
 // Internal site type with process tracking
 interface SimpleWordPressSite {
@@ -119,6 +131,12 @@ export class SimpleWordPressManager {
         this.logger = new DebugLogger();
         this.logger.clearLog();
         this.logger.log("SimpleWordPressManager constructor called");
+
+        // Display current mode info (mode is already initialized from settings)
+        const modeInfo = NonAdminMode.getExplanation();
+        console.log(`🔓 Running in ${modeInfo.mode}`);
+        console.log(`   ${modeInfo.description}`);
+        console.log(`   URLs: ${modeInfo.urls}`);
     }
 
     /**
@@ -224,7 +242,14 @@ export class SimpleWordPressManager {
      * Create a new WordPress site
      */
     async createSite(config: SiteConfig): Promise<WordPressSite> {
+        const logger = FileLogger.getInstance("site-creation.log");
+
         try {
+            await logger.info(
+                `Starting WordPress site creation: ${config.siteName}`
+            );
+            await logger.info("Site configuration", config);
+
             console.log(`🏗 Creating WordPress site: ${config.siteName}`);
             console.log(
                 `📋 Site configuration:`,
@@ -270,16 +295,26 @@ export class SimpleWordPressManager {
 
             // Create site object
             console.log(`📝 Creating site object...`);
+            const effectiveDomain = NonAdminMode.getEffectiveDomain(
+                config.siteName,
+                config.domain
+            );
+            const siteUrl = NonAdminMode.getSiteUrl(
+                config.siteName,
+                config.domain,
+                port
+            );
+
             const site: SimpleWordPressSite = {
                 id: siteId,
                 name: config.siteName,
-                domain: config.domain,
+                domain: effectiveDomain,
                 path: sitePath,
                 port,
                 status: SiteStatus.STOPPED,
                 wordpressVersion: config.wordpressVersion,
-                url: `http://${config.domain}:${port}`,
-                adminUrl: `http://${config.domain}:${port}/wp-admin`,
+                url: siteUrl,
+                adminUrl: `${siteUrl}/wp-admin`,
                 phpVersion: config.phpVersion || "system",
                 created: new Date(),
             };
@@ -407,15 +442,67 @@ export class SimpleWordPressManager {
         zipPath: string,
         sitePath: string
     ): Promise<void> {
-        try {
-            // For now, we'll create a simple WordPress structure
-            // In a full implementation, you'd use a zip extraction library
-            const wpPath = path.join(sitePath, "wordpress");
-            await fs.mkdir(wpPath, { recursive: true });
+        const logger = FileLogger.getInstance("wordpress.log");
 
-            // Create basic WordPress structure
-            await this.createBasicWordPressStructure(wpPath);
+        try {
+            await logger.info("Starting WordPress extraction", {
+                zipPath,
+                sitePath,
+            });
+
+            if (AdmZip) {
+                // Use real WordPress extraction
+                await logger.info("Using adm-zip for extraction");
+                const zip = new AdmZip(zipPath);
+
+                // Extract to temporary location first
+                const tempExtractPath = path.join(
+                    this.tempPath,
+                    `extract-${Date.now()}`
+                );
+                await fs.mkdir(tempExtractPath, { recursive: true });
+
+                zip.extractAllTo(tempExtractPath, true);
+                await logger.success(
+                    "WordPress extracted to temporary location"
+                );
+
+                // WordPress extracts to a 'wordpress' folder, move contents to site directory
+                const wpExtractDir = path.join(tempExtractPath, "wordpress");
+
+                if (await this.siteDirectoryExists(wpExtractDir)) {
+                    // Move all files from wordpress folder to site directory
+                    const files = await fs.readdir(wpExtractDir);
+                    await logger.info(`Moving ${files.length} WordPress files`);
+
+                    for (const file of files) {
+                        const srcPath = path.join(wpExtractDir, file);
+                        const destPath = path.join(sitePath, file);
+                        await fs.rename(srcPath, destPath);
+                    }
+
+                    // Clean up temporary extraction folder
+                    await fs.rmdir(tempExtractPath, { recursive: true });
+                    await logger.success(
+                        "Real WordPress files extracted and moved"
+                    );
+                } else {
+                    await logger.error(
+                        "WordPress folder not found in extraction"
+                    );
+                    throw new Error(
+                        "WordPress extraction failed - wordpress folder not found"
+                    );
+                }
+            } else {
+                // Fallback to creating basic WordPress structure
+                await logger.warn(
+                    "adm-zip not available, creating basic WordPress structure"
+                );
+                await this.createBasicWordPressStructure(sitePath);
+            }
         } catch (error) {
+            await logger.error("WordPress extraction failed", error);
             throw new Error(
                 `Failed to extract WordPress: ${error instanceof Error ? error.message : String(error)}`
             );
@@ -503,8 +590,15 @@ if ( ! isset( $wp_did_header ) ) {
         sitePath: string,
         config: SiteConfig
     ): Promise<void> {
-        const wpPath = path.join(sitePath, "wordpress");
-        const wpConfigPath = path.join(wpPath, "wp-config.php");
+        const wpConfigPath = path.join(sitePath, "wp-config.php");
+
+        // Get the correct URL based on admin mode
+        const port = await this.getAvailablePort();
+        const siteUrl = NonAdminMode.getSiteUrl(
+            config.siteName,
+            config.domain,
+            port
+        );
 
         // Create wp-config.php
         const wpConfig = `<?php
@@ -561,8 +655,8 @@ define( 'WP_DEBUG_DISPLAY', false );
 /**
  * WordPress site URLs
  */
-define( 'WP_HOME', 'http://${config.domain}' );
-define( 'WP_SITEURL', 'http://${config.domain}' );
+define( 'WP_HOME', '${siteUrl}' );
+define( 'WP_SITEURL', '${siteUrl}' );
 
 /* Add any custom values between this line and the "stop editing" line. */
 
@@ -619,6 +713,15 @@ require_once ABSPATH . 'wp-settings.php';
      * Start PHP development server for a site
      */
     private async startPHPServer(site: SimpleWordPressSite): Promise<void> {
+        const logger = FileLogger.getInstance("php-server.log");
+
+        await logger.info(`Starting PHP server for site: ${site.name}`, {
+            siteName: site.name,
+            domain: site.domain,
+            port: site.port,
+            sitePath: site.path,
+        });
+
         console.log(`🔧 Starting PHP server for site: ${site.name}`);
         const wpPath = path.join(site.path, "wordpress");
         console.log(`   WordPress path: ${wpPath}`);
@@ -848,6 +951,9 @@ require_once ABSPATH . 'wp-settings.php';
     private async loadExistingSites(): Promise<void> {
         try {
             const siteDirectories = await fs.readdir(this.sitesPath);
+            this.logger.log(
+                `🔍 Found ${siteDirectories.length} potential site directories to load`
+            );
 
             for (const siteDir of siteDirectories) {
                 const configPath = path.join(
@@ -857,8 +963,29 @@ require_once ABSPATH . 'wp-settings.php';
                 );
 
                 try {
+                    // Check if config file exists before trying to read it
+                    const configExists = await fs
+                        .access(configPath)
+                        .then(() => true)
+                        .catch(() => false);
+
+                    if (!configExists) {
+                        console.log(
+                            `⏭️ Skipping ${siteDir}: missing pressbox-config.json`
+                        );
+                        continue;
+                    }
+
                     const configData = await fs.readFile(configPath, "utf-8");
                     const site: WordPressSite = JSON.parse(configData);
+
+                    // Validate required fields
+                    if (!site.id || !site.name) {
+                        console.warn(
+                            `⚠️ Skipping ${siteDir}: invalid config (missing id or name)`
+                        );
+                        continue;
+                    }
 
                     // Convert to simple site and reset status to stopped on load
                     const simpleSite = wordPressToSimple(site);
@@ -869,15 +996,107 @@ require_once ABSPATH . 'wp-settings.php';
                     if (site.port) {
                         this.usedPorts.add(site.port);
                     }
+
+                    console.log(`✅ Loaded site: ${site.name} (${site.id})`);
                 } catch (error) {
+                    const errorMessage =
+                        error instanceof Error ? error.message : String(error);
                     console.warn(
-                        `Failed to load site config for ${siteDir}:`,
-                        error
+                        `⚠️ Failed to load site config for ${siteDir}:`,
+                        errorMessage
                     );
+                    // Continue loading other sites even if one fails
+                    continue;
                 }
             }
         } catch (error) {
             console.log("No existing sites directory found");
+        }
+    }
+
+    /**
+     * Clean up broken site directories (folders without proper config)
+     */
+    async cleanupBrokenSites(): Promise<{ cleaned: string[]; kept: string[] }> {
+        const cleaned: string[] = [];
+        const kept: string[] = [];
+
+        try {
+            const siteDirectories = await fs.readdir(this.sitesPath);
+
+            for (const siteDir of siteDirectories) {
+                const configPath = path.join(
+                    this.sitesPath,
+                    siteDir,
+                    "pressbox-config.json"
+                );
+                const sitePath = path.join(this.sitesPath, siteDir);
+
+                try {
+                    // Check if it's actually a directory
+                    const stat = await fs.stat(sitePath);
+                    if (!stat.isDirectory()) {
+                        continue;
+                    }
+
+                    // Check if config exists and is valid
+                    const configExists = await fs
+                        .access(configPath)
+                        .then(() => true)
+                        .catch(() => false);
+
+                    if (!configExists) {
+                        console.log(
+                            `🧹 Cleaning up broken site directory: ${siteDir}`
+                        );
+                        await fs.rm(sitePath, { recursive: true, force: true });
+                        cleaned.push(siteDir);
+                    } else {
+                        // Try to parse the config to make sure it's valid
+                        try {
+                            const configData = await fs.readFile(
+                                configPath,
+                                "utf-8"
+                            );
+                            const site = JSON.parse(configData);
+                            if (!site.id || !site.name) {
+                                console.log(
+                                    `🧹 Cleaning up invalid site directory: ${siteDir}`
+                                );
+                                await fs.rm(sitePath, {
+                                    recursive: true,
+                                    force: true,
+                                });
+                                cleaned.push(siteDir);
+                            } else {
+                                kept.push(siteDir);
+                            }
+                        } catch (parseError) {
+                            console.log(
+                                `🧹 Cleaning up site with corrupted config: ${siteDir}`
+                            );
+                            await fs.rm(sitePath, {
+                                recursive: true,
+                                force: true,
+                            });
+                            cleaned.push(siteDir);
+                        }
+                    }
+                } catch (error) {
+                    console.warn(
+                        `⚠️ Error checking site directory ${siteDir}:`,
+                        error
+                    );
+                }
+            }
+
+            console.log(
+                `🧹 Cleanup complete: ${cleaned.length} broken sites removed, ${kept.length} valid sites kept`
+            );
+            return { cleaned, kept };
+        } catch (error) {
+            console.error("Failed to cleanup broken sites:", error);
+            return { cleaned: [], kept: [] };
         }
     }
 }

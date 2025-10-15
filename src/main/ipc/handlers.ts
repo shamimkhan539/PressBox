@@ -9,6 +9,7 @@ import { AdminChecker } from "../services/adminChecker";
 import { PortablePHPManager } from "../services/portablePHPManager";
 import { WPCLIManager } from "../services/wpCliManager";
 import { EnvironmentManager } from "../services/environmentManager";
+import { NonAdminMode } from "../services/nonAdminMode";
 import { CreateSiteRequest } from "../../shared/types";
 
 /**
@@ -47,9 +48,28 @@ export class IPCHandlers {
         this.registerFileHandlers();
         this.registerSystemHandlers();
         this.registerServerHandlers();
-        this.registerHostsFileHandlers();
+        this.registerNonAdminHandlers();
+
+        // Only register hosts file handlers if non-admin mode is disabled
+        if (!NonAdminMode.isEnabled()) {
+            console.log("🔒 Registering hosts file handlers (admin mode)");
+            this.registerHostsFileHandlers();
+        } else {
+            console.log("🔓 Skipping hosts file handlers (non-admin mode)");
+        }
+
         this.registerEnvironmentHandlers();
         console.log("✅ All IPC handlers registered");
+    }
+
+    /**
+     * Register Non-Admin Mode IPC handlers
+     */
+    registerNonAdminHandlers(): void {
+        const { ipcMain } = require("electron");
+        ipcMain.handle("nonadmin:should-prompt-user", async () => {
+            return NonAdminMode.shouldPromptUser();
+        });
     }
 
     /**
@@ -449,6 +469,66 @@ export class IPCHandlers {
                 throw error;
             }
         });
+
+        // Non-Admin Mode settings handlers
+        ipcMain.handle("nonadmin:get-status", async () => {
+            try {
+                return {
+                    enabled: NonAdminMode.isEnabled(),
+                    hasUserMadeChoice: NonAdminMode.hasUserMadeChoice(),
+                    lastChoice: NonAdminMode.getLastChoice(),
+                    explanation: NonAdminMode.getExplanation(),
+                };
+            } catch (error) {
+                console.error("Failed to get non-admin mode status:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle("nonadmin:should-prompt-user", async () => {
+            try {
+                return NonAdminMode.shouldPromptUser();
+            } catch (error) {
+                console.error("Failed to check if should prompt user:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle("nonadmin:enable", async () => {
+            try {
+                NonAdminMode.enable(true); // Save preference
+                console.log("✅ Non-admin mode enabled via IPC");
+                return NonAdminMode.getExplanation();
+            } catch (error) {
+                console.error("Failed to enable non-admin mode:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle("nonadmin:disable", async () => {
+            try {
+                NonAdminMode.disable(true); // Save preference
+                console.log("✅ Admin mode enabled via IPC");
+                return NonAdminMode.getExplanation();
+            } catch (error) {
+                console.error("Failed to disable non-admin mode:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle("nonadmin:reset-preferences", async () => {
+            try {
+                NonAdminMode.resetPreferences();
+                console.log("✅ Non-admin mode preferences reset via IPC");
+                return NonAdminMode.getExplanation();
+            } catch (error) {
+                console.error(
+                    "Failed to reset non-admin mode preferences:",
+                    error
+                );
+                throw error;
+            }
+        });
     }
 
     /**
@@ -658,6 +738,13 @@ export class IPCHandlers {
     private registerHostsFileHandlers(): void {
         ipcMain.handle("hosts:list", async () => {
             try {
+                // Check if non-admin mode is enabled
+                if (NonAdminMode.isEnabled()) {
+                    console.log(
+                        "🔓 Hosts file access blocked in non-admin mode"
+                    );
+                    return [];
+                }
                 return await HostsFileService.readHostsFile();
             } catch (error) {
                 console.error("Failed to read hosts file:", error);
@@ -678,6 +765,16 @@ export class IPCHandlers {
                 }
             ) => {
                 try {
+                    // Check if non-admin mode is enabled
+                    if (NonAdminMode.isEnabled()) {
+                        console.log(
+                            "🔓 Hosts file modification blocked in non-admin mode"
+                        );
+                        return {
+                            success: false,
+                            error: "Hosts file modification disabled in non-admin mode",
+                        };
+                    }
                     await HostsFileService.addHostEntry({
                         ip: entry.ip,
                         hostname: entry.hostname,
@@ -695,6 +792,16 @@ export class IPCHandlers {
 
         ipcMain.handle("hosts:remove", async (_, hostname: string) => {
             try {
+                // Check if non-admin mode is enabled
+                if (NonAdminMode.isEnabled()) {
+                    console.log(
+                        "🔓 Hosts file modification blocked in non-admin mode"
+                    );
+                    return {
+                        success: false,
+                        error: "Hosts file modification disabled in non-admin mode",
+                    };
+                }
                 await HostsFileService.removeHostEntry(hostname);
                 return { success: true };
             } catch (error) {

@@ -8,8 +8,10 @@ import { Tools } from './pages/Tools.tsx';
 import { Settings } from './pages/Settings.tsx';
 import { NotificationProvider } from './components/NotificationSystem.tsx';
 import { AdminNotification } from './components/AdminNotification.tsx';
+import { AdminModeSelector } from './components/AdminModeSelector.tsx';
 import { cn } from './utils/cn.ts';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { waitForElectronAPI, isElectronAPIReady } from './utils/electronApi';
 import {
   ChartBarIcon,
   GlobeAltIcon,
@@ -107,12 +109,27 @@ const SiteProvider = ({ children }: { children: any }) => children;
 function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [showAdminNotification, setShowAdminNotification] = useState(false);
+  const [showAdminModeSelector, setShowAdminModeSelector] = useState(false);
   const [hasCheckedAdmin, setHasCheckedAdmin] = useState(false);
 
   // Initialize theme from settings
   useEffect(() => {
     const initializeTheme = async () => {
       try {
+        // Wait for electronAPI to be available
+        if (!isElectronAPIReady()) {
+          console.log('⏳ Waiting for Electron API for theme...');
+          try {
+            await waitForElectronAPI(3000);
+            console.log('✅ Electron API ready for theme');
+          } catch (error) {
+            console.warn('⚠️  Timeout waiting for API, using system theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            setTheme(prefersDark ? 'dark' : 'light');
+            return;
+          }
+        }
+        
         const savedTheme = await window.electronAPI.settings.get('theme');
         if (savedTheme && (savedTheme === 'light' || savedTheme === 'dark')) {
           setTheme(savedTheme);
@@ -123,6 +140,9 @@ function App() {
         }
       } catch (error) {
         console.error('Failed to load theme setting:', error);
+        // Fallback to system theme
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        setTheme(prefersDark ? 'dark' : 'light');
       }
     };
 
@@ -131,35 +151,62 @@ function App() {
 
   // Check admin privileges on startup
   useEffect(() => {
-    const waitForElectronAPI = (): Promise<void> => {
-      return new Promise((resolve) => {
-        const checkAPI = () => {
-          if (window.electronAPI && 
-              window.electronAPI.system && 
-              typeof window.electronAPI.system.checkAdmin === 'function') {
-            resolve();
-          } else {
-            setTimeout(checkAPI, 100);
-          }
-        };
-        checkAPI();
-      });
-    };
-
     const checkAdminPrivileges = async () => {
       if (hasCheckedAdmin) return;
 
       try {
         // Wait for Electron API to be ready
-        await waitForElectronAPI();
+        console.log('⏳ Waiting for Electron API for admin check...');
+        const electronAPI = await waitForElectronAPI(5000);
+        console.log('✅ Electron API ready for admin check');
         
-        const adminStatus = await window.electronAPI.system.checkAdmin();
-        setHasCheckedAdmin(true);
+        // Check if user should be prompted for mode selection
+        const shouldPrompt = await electronAPI.nonAdminMode.shouldPromptUser();
+        console.log('🔧 Should prompt user for mode:', shouldPrompt);
         
-        // Show notification if admin privileges are not available
-        if (!adminStatus.isAdmin || !adminStatus.canModifyHosts) {
-          setShowAdminNotification(true);
+        if (shouldPrompt) {
+          console.log('🎯 Showing admin mode selector for first-time user');
+          setShowAdminModeSelector(true);
+          setHasCheckedAdmin(true);
+          return;
         }
+        
+        // Check non-admin mode status
+        const nonAdminStatus = await electronAPI.nonAdminMode.getStatus();
+        console.log('🔧 Non-admin mode status:', nonAdminStatus);
+        console.log('🔧 Non-admin enabled:', nonAdminStatus.enabled);
+        console.log('🔧 User choice made:', nonAdminStatus.hasUserMadeChoice);
+        console.log('🔧 Last choice:', nonAdminStatus.lastChoice);
+        
+        // Only check admin privileges if not in non-admin mode
+        if (!nonAdminStatus.enabled) {
+          console.log('🔒 Admin mode active - checking admin privileges...');
+          const adminStatus = await electronAPI.system.checkAdmin();
+          
+          if (!adminStatus.isAdmin || !adminStatus.canModifyHosts) {
+            console.log('⚠️ Admin privileges not available in admin mode');
+            console.log('🔄 Automatically switching to non-admin mode for better UX');
+            
+            // Automatically switch to non-admin mode if admin privileges are not available
+            await electronAPI.nonAdminMode.enable();
+            
+            console.log('✅ Switched to non-admin mode');
+            console.log('💡 User can change back to admin mode in settings if they get admin privileges');
+            
+            // Show a notification about the mode switch
+            // We'll use a simple alert for now since we can't use the hook here
+            setTimeout(() => {
+              alert('PressBox detected that administrator privileges are not available and has switched to non-admin mode. You can change this in Settings.');
+            }, 1000);
+          } else {
+            console.log('✅ Admin privileges available');
+          }
+        } else {
+          // In non-admin mode, don't show admin notification
+          console.log('🔓 Running in non-admin mode - no admin checks needed');
+        }
+        
+        setHasCheckedAdmin(true);
       } catch (error) {
         console.error('Failed to check admin privileges:', error);
         setHasCheckedAdmin(true);
@@ -169,10 +216,33 @@ function App() {
     checkAdminPrivileges();
   }, [hasCheckedAdmin]);
 
-  // Apply theme to document
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-  }, [theme]);
+  // Handle admin mode selection
+  const handleModeSelected = async (mode: 'admin' | 'non-admin') => {
+    try {
+      console.log(`🎯 User selected ${mode} mode`);
+      
+      if (mode === 'non-admin') {
+        await window.electronAPI.nonAdminMode.enable();
+        console.log('✅ Non-admin mode enabled');
+      } else {
+        await window.electronAPI.nonAdminMode.disable();
+        console.log('✅ Admin mode enabled');
+        
+        // Check admin privileges for admin mode
+        const adminStatus = await window.electronAPI.system.checkAdmin();
+        if (!adminStatus.isAdmin || !adminStatus.canModifyHosts) {
+          console.log('⚠️ Admin privileges not available - showing notification');
+          setShowAdminNotification(true);
+        } else {
+          console.log('✅ Admin privileges available');
+        }
+      }
+      
+      setShowAdminModeSelector(false);
+    } catch (error) {
+      console.error('Failed to set admin mode:', error);
+    }
+  };
 
   return (
     <div className={cn(
@@ -210,6 +280,13 @@ function App() {
         <AdminNotification
           isVisible={showAdminNotification}
           onClose={() => setShowAdminNotification(false)}
+        />
+
+        {/* Admin Mode Selector */}
+        <AdminModeSelector
+          isVisible={showAdminModeSelector}
+          onModeSelected={handleModeSelected}
+          onClose={() => setShowAdminModeSelector(false)}
         />
       </NotificationProvider>
     </div>
