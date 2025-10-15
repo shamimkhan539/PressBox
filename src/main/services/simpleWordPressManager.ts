@@ -747,6 +747,10 @@ require_once ABSPATH . 'wp-settings.php';
             "-d",
             "log_errors=1",
             "-d",
+            "extension=sqlite3", // Enable SQLite3 extension (required by SQLite Integration plugin)
+            "-d",
+            "extension=pdo_sqlite", // Enable PDO SQLite for WordPress
+            "-d",
             "extension=mysqli",
             "-d",
             "extension=pdo_mysql",
