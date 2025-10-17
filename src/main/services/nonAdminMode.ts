@@ -8,6 +8,7 @@
 
 import * as os from "os";
 import Store from "electron-store";
+import { WordPressManager } from "./wordpressManager";
 
 interface NonAdminModeSettings {
     nonAdminMode: {
@@ -48,6 +49,8 @@ export class NonAdminMode {
         NonAdminMode.enabled = settings.enabled;
 
         console.log("🔧 NonAdminMode initialized");
+        console.log(`   - Store path: ${(NonAdminMode.store as any).path}`);
+        console.log(`   - Raw settings:`, JSON.stringify(settings, null, 2));
         console.log(`   - Enabled: ${NonAdminMode.enabled}`);
         console.log(`   - User choice made: ${settings.userChoiceMade}`);
         console.log(`   - Last choice: ${settings.lastChoice}`);
@@ -71,7 +74,10 @@ export class NonAdminMode {
     /**
      * Enable non-admin mode and save preference
      */
-    static enable(savePreference: boolean = true): void {
+    static enable(
+        wordPressManager?: WordPressManager,
+        savePreference: boolean = true
+    ): void {
         NonAdminMode.enabled = true;
 
         if (savePreference && NonAdminMode.store) {
@@ -89,12 +95,20 @@ export class NonAdminMode {
         );
         console.log("   - No hosts file modification required");
         console.log("   - No administrator privileges needed");
+
+        // Update all site URLs to use localhost
+        if (wordPressManager) {
+            wordPressManager.updateSiteUrlsForAdminMode();
+        }
     }
 
     /**
      * Disable non-admin mode and save preference
      */
-    static disable(savePreference: boolean = true): void {
+    static disable(
+        wordPressManager?: WordPressManager,
+        savePreference: boolean = true
+    ): void {
         NonAdminMode.enabled = false;
 
         if (savePreference && NonAdminMode.store) {
@@ -107,6 +121,11 @@ export class NonAdminMode {
         }
 
         console.log("🔒 Admin mode enabled (hosts file modification required)");
+
+        // Update all site URLs to use custom domains
+        if (wordPressManager) {
+            wordPressManager.updateSiteUrlsForAdminMode();
+        }
     }
 
     /**

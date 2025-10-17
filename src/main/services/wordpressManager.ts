@@ -455,6 +455,9 @@ export class WordPressManager {
             console.log(`🛑 Stopping site via Simple Manager: ${siteId}`);
             await this.simpleManager.stopSite(siteId);
 
+            // Release port for simple sites
+            this.portManager.releasePort(siteId);
+
             // Update our local cache
             const site = this.sites.get(siteId);
             if (site) {
@@ -670,6 +673,13 @@ export class WordPressManager {
                 error
             );
         }
+    }
+
+    /**
+     * Update all site URLs when admin mode changes
+     */
+    async updateSiteUrlsForAdminMode(): Promise<void> {
+        await this.simpleManager.updateSiteUrlsForAdminMode();
     }
 
     /**

@@ -1,18 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { 
+import {
   XMarkIcon,
-  CircleStackIcon,
-  MagnifyingGlassIcon,
   TableCellsIcon,
-  CommandLineIcon,
-  DocumentTextIcon,
-  ArrowPathIcon,
+  MagnifyingGlassIcon,
   PlusIcon,
-  TrashIcon,
   PencilIcon,
-  EyeIcon,
+  TrashIcon,
+  ArrowPathIcon,
   ArrowDownTrayIcon,
-  ArrowUpTrayIcon
+  ArrowUpTrayIcon,
+  CodeBracketIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline';
 import { WordPressSite } from '../../../shared/types';
 
@@ -22,390 +20,737 @@ interface DatabaseBrowserProps {
   site: WordPressSite | null;
 }
 
-interface DatabaseTable {
+interface TableInfo {
   name: string;
-  engine: string;
-  rows: number;
-  size: string;
-  collation: string;
-  comment: string;
+  sql: string;
+  type: string;
 }
 
-interface TableColumn {
-  field: string;
+interface ColumnInfo {
+  cid: number;
+  name: string;
   type: string;
-  null: boolean;
-  key: string;
-  default: string | null;
-  extra: string;
+  notnull: number;
+  dflt_value: any;
+  pk: number;
 }
 
 interface QueryResult {
   columns: string[];
-  rows: any[][];
-  affectedRows?: number;
+  rows: any[];
+  rowCount: number;
   executionTime: number;
-  query: string;
 }
 
-const mockDatabaseTables: DatabaseTable[] = [
-  {
-    name: 'wp_posts',
-    engine: 'InnoDB',
-    rows: 1247,
-    size: '2.1 MB',
-    collation: 'utf8mb4_unicode_ci',
-    comment: 'WordPress posts table'
-  },
-  {
-    name: 'wp_postmeta',
-    engine: 'InnoDB',
-    rows: 3891,
-    size: '1.8 MB',
-    collation: 'utf8mb4_unicode_ci',
-    comment: 'Post metadata'
-  },
-  {
-    name: 'wp_users',
-    engine: 'InnoDB',
-    rows: 12,
-    size: '16 KB',
-    collation: 'utf8mb4_unicode_ci',
-    comment: 'WordPress users'
-  },
-  {
-    name: 'wp_usermeta',
-    engine: 'InnoDB',
-    rows: 156,
-    size: '64 KB',
-    collation: 'utf8mb4_unicode_ci',
-    comment: 'User metadata'
-  },
-  {
-    name: 'wp_options',
-    engine: 'InnoDB',
-    rows: 428,
-    size: '512 KB',
-    collation: 'utf8mb4_unicode_ci',
-    comment: 'WordPress options'
-  },
-  {
-    name: 'wp_comments',
-    engine: 'InnoDB',
-    rows: 89,
-    size: '32 KB',
-    collation: 'utf8mb4_unicode_ci',
-    comment: 'Comments table'
-  },
-  {
-    name: 'wp_commentmeta',
-    engine: 'InnoDB',
-    rows: 234,
-    size: '48 KB',
-    collation: 'utf8mb4_unicode_ci',
-    comment: 'Comment metadata'
-  },
-  {
-    name: 'wp_terms',
-    engine: 'InnoDB',
-    rows: 67,
-    size: '16 KB',
-    collation: 'utf8mb4_unicode_ci',
-    comment: 'Taxonomy terms'
-  }
-];
-
-const mockQueryResults: QueryResult[] = [
-  {
-    query: 'SELECT * FROM wp_users LIMIT 5',
-    columns: ['ID', 'user_login', 'user_email', 'user_registered', 'user_status'],
-    rows: [
-      ['1', 'admin', 'admin@example.com', '2024-01-15 10:30:00', '0'],
-      ['2', 'editor', 'editor@example.com', '2024-02-10 14:22:00', '0'],
-      ['3', 'author', 'author@example.com', '2024-03-05 09:15:00', '0']
-    ],
-    executionTime: 0.002
-  }
-];
-
 export function DatabaseBrowser({ isOpen, onClose, site }: DatabaseBrowserProps) {
-  const [activeTab, setActiveTab] = useState('tables');
-  const [tables, setTables] = useState<DatabaseTable[]>(mockDatabaseTables);
+  const [tables, setTables] = useState<TableInfo[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sqlQuery, setSqlQuery] = useState('SELECT * FROM wp_users LIMIT 10;');
-  const [queryResults, setQueryResults] = useState<QueryResult[]>([]);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [tableColumns, setTableColumns] = useState<TableColumn[]>([]);
-  const [tableData, setTableData] = useState<any[][]>([]);
+  const [tableSchema, setTableSchema] = useState<ColumnInfo[]>([]);
+  const [tableData, setTableData] = useState<QueryResult | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [totalRows, setTotalRows] = useState(0);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchColumn, setSearchColumn] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'browse' | 'structure' | 'query'>('browse');
+  const [sqlQuery, setSqlQuery] = useState('');
+  const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
+  const [editingRow, setEditingRow] = useState<number | null>(null);
+  const [editedData, setEditedData] = useState<Record<string, any>>({});
+  const [showAddRow, setShowAddRow] = useState(false);
+  const [newRowData, setNewRowData] = useState<Record<string, any>>({});
 
-  if (!isOpen || !site) return null;
+  // Load tables on mount
+  useEffect(() => {
+    if (isOpen && site) {
+      loadTables();
+    }
+  }, [isOpen, site]);
 
-  const filteredTables = tables.filter(table =>
-    table.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    table.comment.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Load table data when table selection changes
+  useEffect(() => {
+    if (selectedTable) {
+      loadTableData();
+      loadTableSchema();
+    }
+  }, [selectedTable, currentPage, pageSize, searchTerm, searchColumn]);
 
-  const handleTableSelect = (tableName: string) => {
-    setSelectedTable(tableName);
-    setLoading(true);
-    
-    // Mock table structure
-    const mockColumns: TableColumn[] = [
-      { field: 'ID', type: 'bigint(20)', null: false, key: 'PRI', default: null, extra: 'auto_increment' },
-      { field: 'user_login', type: 'varchar(60)', null: false, key: 'UNI', default: '', extra: '' },
-      { field: 'user_email', type: 'varchar(100)', null: false, key: 'MUL', default: '', extra: '' },
-      { field: 'user_registered', type: 'datetime', null: false, key: '', default: '0000-00-00 00:00:00', extra: '' },
-      { field: 'user_status', type: 'int(11)', null: false, key: '', default: '0', extra: '' }
-    ];
-
-    const mockData = [
-      ['1', 'admin', 'admin@example.com', '2024-01-15 10:30:00', '0'],
-      ['2', 'editor', 'editor@example.com', '2024-02-10 14:22:00', '0'],
-      ['3', 'author', 'author@example.com', '2024-03-05 09:15:00', '0']
-    ];
-
-    setTimeout(() => {
-      setTableColumns(mockColumns);
-      setTableData(mockData);
+  const loadTables = async () => {
+    try {
+      setLoading(true);
+      const result = await window.electronAPI.database.getTables(site?.name || '');
+      setTables(result);
+      if (result.length > 0 && !selectedTable) {
+        setSelectedTable(result[0].name);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load tables');
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
-  const handleExecuteQuery = () => {
-    setIsExecuting(true);
-    
-    setTimeout(() => {
-      const result: QueryResult = {
-        query: sqlQuery,
-        columns: ['ID', 'user_login', 'user_email', 'user_registered'],
-        rows: [
-          ['1', 'admin', 'admin@example.com', '2024-01-15 10:30:00'],
-          ['2', 'editor', 'editor@example.com', '2024-02-10 14:22:00']
-        ],
-        executionTime: Math.random() * 0.1,
-        affectedRows: sqlQuery.toLowerCase().includes('select') ? undefined : 2
-      };
-      
-      setQueryResults([result, ...queryResults.slice(0, 4)]);
-      setIsExecuting(false);
-    }, 1000);
+  const loadTableSchema = async () => {
+    if (!selectedTable) return;
+
+    try {
+      const schema = await window.electronAPI.database.getSchema(site?.name || '', selectedTable);
+      setTableSchema(schema);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load schema');
+    }
   };
 
-  const handleRefreshTables = () => {
-    setLoading(true);
-    setTimeout(() => {
-      setTables([...mockDatabaseTables]);
+  const loadTableData = async () => {
+    if (!selectedTable) return;
+
+    try {
+      setLoading(true);
+      const [data, count] = await Promise.all([
+        window.electronAPI.database.getTableData(
+          site?.name || '',
+          selectedTable,
+          currentPage,
+          pageSize,
+          searchTerm || undefined,
+          searchColumn || undefined
+        ),
+        window.electronAPI.database.getRowCount(
+          site?.name || '',
+          selectedTable,
+          searchTerm || undefined,
+          searchColumn || undefined
+        ),
+      ]);
+      setTableData(data);
+      setTotalRows(count);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load table data');
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
-  const getTotalSize = () => {
-    return tables.reduce((total, table) => {
-      const size = parseFloat(table.size.replace(/[^\d.]/g, ''));
-      const unit = table.size.includes('MB') ? 1024 : 1;
-      return total + (size * unit);
-    }, 0);
+  const handleSearch = () => {
+    setCurrentPage(1);
+    loadTableData();
   };
 
-  const getTotalRows = () => {
-    return tables.reduce((total, table) => total + table.rows, 0);
+  const handleRefresh = () => {
+    loadTableData();
   };
+
+  const handleDeleteRow = async (row: any) => {
+    if (!selectedTable) return;
+
+    const confirmed = confirm('Are you sure you want to delete this row?');
+    if (!confirmed) return;
+
+    try {
+      // Find primary key column
+      const pkColumn = tableSchema.find(col => col.pk === 1);
+      if (!pkColumn) {
+        alert('Cannot delete row: No primary key found');
+        return;
+      }
+
+      const whereClause = `${pkColumn.name} = ?`;
+      const whereParams = [row[pkColumn.name]];
+
+      const result = await window.electronAPI.database.deleteRow(
+        site?.name || '',
+        selectedTable,
+        whereClause,
+        whereParams
+      );
+
+      if (result.success) {
+        loadTableData();
+      } else {
+        alert(`Delete failed: ${result.error}`);
+      }
+    } catch (err) {
+      alert(`Delete failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleEditRow = (index: number, row: any) => {
+    setEditingRow(index);
+    setEditedData({ ...row });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedTable || editingRow === null) return;
+
+    try {
+      // Find primary key column
+      const pkColumn = tableSchema.find(col => col.pk === 1);
+      if (!pkColumn) {
+        alert('Cannot update row: No primary key found');
+        return;
+      }
+
+      const whereClause = `${pkColumn.name} = ?`;
+      const whereParams = [editedData[pkColumn.name]];
+
+      // Remove primary key from update data
+      const updateData = { ...editedData };
+      delete updateData[pkColumn.name];
+
+      const result = await window.electronAPI.database.updateRow(
+        site?.name || '',
+        selectedTable,
+        updateData,
+        whereClause,
+        whereParams
+      );
+
+      if (result.success) {
+        setEditingRow(null);
+        setEditedData({});
+        loadTableData();
+      } else {
+        alert(`Update failed: ${result.error}`);
+      }
+    } catch (err) {
+      alert(`Update failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingRow(null);
+    setEditedData({});
+  };
+
+  const handleAddRow = () => {
+    const initialData: Record<string, any> = {};
+    tableSchema.forEach(col => {
+      initialData[col.name] = col.dflt_value || '';
+    });
+    setNewRowData(initialData);
+    setShowAddRow(true);
+  };
+
+  const handleSaveNewRow = async () => {
+    if (!selectedTable) return;
+
+    try {
+      const result = await window.electronAPI.database.insertRow(
+        site?.name || '',
+        selectedTable,
+        newRowData
+      );
+
+      if (result.success) {
+        setShowAddRow(false);
+        setNewRowData({});
+        loadTableData();
+      } else {
+        alert(`Insert failed: ${result.error}`);
+      }
+    } catch (err) {
+      alert(`Insert failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleExecuteQuery = async () => {
+    if (!sqlQuery.trim()) return;
+
+    try {
+      setLoading(true);
+      const result = await window.electronAPI.database.executeRaw(site?.name || '', sqlQuery);
+
+      if (result.success) {
+        setQueryResult(result.result);
+        setError(null);
+      } else {
+        setError(result.error || 'Query execution failed');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Query execution failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      const result = await window.electronAPI.dialog.showSaveDialog({
+        title: 'Export Database',
+        defaultPath: `${site?.name || 'database'}-export.sql`,
+        filters: [{ name: 'SQL Files', extensions: ['sql'] }],
+      });
+
+      if (result.filePath) {
+        const exportResult = await window.electronAPI.database.exportDatabase(
+          site?.name || '',
+          result.filePath,
+          selectedTable ? [selectedTable] : undefined
+        );
+
+        if (exportResult.success) {
+          alert('Database exported successfully!');
+        } else {
+          alert(`Export failed: ${exportResult.error}`);
+        }
+      }
+    } catch (err) {
+      alert(`Export failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      const result = await window.electronAPI.dialog.showOpenDialog({
+        title: 'Import SQL File',
+        filters: [{ name: 'SQL Files', extensions: ['sql'] }],
+        properties: ['openFile'],
+      });
+
+      if (result.filePaths && result.filePaths.length > 0) {
+        const importResult = await window.electronAPI.database.importDatabase(
+          site?.name || '',
+          result.filePaths[0]
+        );
+
+        if (importResult.success) {
+          alert('Database imported successfully!');
+          loadTables();
+          loadTableData();
+        } else {
+          alert(`Import failed: ${importResult.error}`);
+        }
+      }
+    } catch (err) {
+      alert(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const totalPages = Math.ceil(totalRows / pageSize);
+
+  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-[9999] flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-[95vw] h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-blue-600 rounded-xl flex items-center justify-center">
-              <CircleStackIcon className="w-5 h-5 text-white" />
-            </div>
+            <TableCellsIcon className="w-6 h-6 text-blue-500" />
             <div>
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Database Browser</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Database Browser
+              </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                MySQL Database: {site.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_db
+                Site: {site?.name || 'No site selected'}
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 flex items-center justify-center transition-colors"
-          >
-            <XMarkIcon className="w-4 h-4 text-gray-600 dark:text-gray-300" />
-          </button>
-        </div>
-
-        {/* Database Stats */}
-        <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900 dark:text-white">{tables.length}</div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Tables</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900 dark:text-white">{getTotalRows().toLocaleString()}</div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Total Rows</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900 dark:text-white">{(getTotalSize() / 1024).toFixed(1)} MB</div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Database Size</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">Connected</div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Status</div>
-            </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleExport}
+              className="btn-secondary flex items-center space-x-2"
+              title="Export Database"
+            >
+              <ArrowDownTrayIcon className="w-4 h-4" />
+              <span>Export</span>
+            </button>
+            <button
+              onClick={handleImport}
+              className="btn-secondary flex items-center space-x-2"
+              title="Import SQL"
+            >
+              <ArrowUpTrayIcon className="w-4 h-4" />
+              <span>Import</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+            >
+              <XMarkIcon className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-gray-200 dark:border-gray-700 px-6">
-          <button
-            onClick={() => setActiveTab('tables')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'tables'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            <TableCellsIcon className="w-4 h-4 inline mr-2" />
-            Tables
-          </button>
-          <button
-            onClick={() => setActiveTab('query')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'query'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            <CommandLineIcon className="w-4 h-4 inline mr-2" />
-            SQL Query
-          </button>
-          <button
-            onClick={() => setActiveTab('structure')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'structure'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-            disabled={!selectedTable}
-          >
-            <DocumentTextIcon className="w-4 h-4 inline mr-2" />
-            Structure {selectedTable && `(${selectedTable})`}
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-hidden">
-          {activeTab === 'tables' && (
-            <div className="h-full flex flex-col">
-              {/* Table Controls */}
-              <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="relative">
-                      <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Search tables..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                      />
+        <div className="flex flex-1 overflow-hidden">
+          {/* Sidebar - Table List */}
+          <div className="w-64 border-r border-gray-200 dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+            <div className="p-3">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Tables ({tables.length})
+              </h3>
+              <div className="space-y-1">
+                {tables.map((table) => (
+                  <button
+                    key={table.name}
+                    onClick={() => setSelectedTable(table.name)}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                      selectedTable === table.name
+                        ? 'bg-blue-500 text-white'
+                        : 'hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2">
+                      <TableCellsIcon className="w-4 h-4" />
+                      <span className="truncate">{table.name}</span>
                     </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={handleRefreshTables}
-                      className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center space-x-2"
-                    >
-                      <ArrowPathIcon className="w-4 h-4" />
-                      <span>Refresh</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Tables List */}
-              <div className="flex-1 overflow-auto p-6">
-                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                  <table className="w-full">
-                    <thead className="bg-gray-50 dark:bg-gray-700">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-900 dark:text-white">Table</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-900 dark:text-white">Engine</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-900 dark:text-white">Rows</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-900 dark:text-white">Size</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-900 dark:text-white">Comment</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-900 dark:text-white">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                      {filteredTables.map((table) => (
-                        <tr 
-                          key={table.name} 
-                          className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer ${
-                            selectedTable === table.name ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                          }`}
-                          onClick={() => handleTableSelect(table.name)}
-                        >
-                          <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
-                            {table.name}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
-                            {table.engine}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
-                            {table.rows.toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
-                            {table.size}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
-                            {table.comment}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            <div className="flex items-center space-x-2">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleTableSelect(table.name);
-                                  setActiveTab('structure');
-                                }}
-                                className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
-                                title="View Structure"
-                              >
-                                <EyeIcon className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSqlQuery(`SELECT * FROM ${table.name} LIMIT 10;`);
-                                  setActiveTab('query');
-                                }}
-                                className="p-1 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded"
-                                title="Query Table"
-                              >
-                                <CommandLineIcon className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                  </button>
+                ))}
               </div>
             </div>
-          )}
+          </div>
 
-          {activeTab === 'query' && (
-            <div className="h-full flex flex-col">
-              {/* Query Editor */}
-              <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                <div className="space-y-4">
+          {/* Main Content */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Tabs */}
+            <div className="border-b border-gray-200 dark:border-gray-700">
+              <div className="flex space-x-4 px-4">
+                <button
+                  onClick={() => setActiveTab('browse')}
+                  className={`py-3 px-2 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'browse'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                  }`}
+                >
+                  Browse Data
+                </button>
+                <button
+                  onClick={() => setActiveTab('structure')}
+                  className={`py-3 px-2 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'structure'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                  }`}
+                >
+                  Structure
+                </button>
+                <button
+                  onClick={() => setActiveTab('query')}
+                  className={`py-3 px-2 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'query'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                  }`}
+                >
+                  SQL Query
+                </button>
+              </div>
+            </div>
+
+            {/* Tab Content */}
+            <div className="flex-1 overflow-hidden p-4">
+              {/* Browse Tab */}
+              {activeTab === 'browse' && selectedTable && (
+                <div className="h-full flex flex-col">
+                  {/* Toolbar */}
+                  <div className="flex items-center justify-between mb-4 space-x-4">
+                    <div className="flex items-center space-x-2 flex-1">
+                      <select
+                        value={searchColumn}
+                        onChange={(e) => setSearchColumn(e.target.value)}
+                        className="form-select"
+                      >
+                        <option value="">All Columns</option>
+                        {tableSchema.map((col) => (
+                          <option key={col.name} value={col.name}>
+                            {col.name}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="flex-1 relative">
+                        <input
+                          type="text"
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                          placeholder="Search..."
+                          className="form-input pl-10"
+                        />
+                        <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                      </div>
+                      <button onClick={handleSearch} className="btn-primary">
+                        Search
+                      </button>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={handleAddRow}
+                        className="btn-primary flex items-center space-x-2"
+                      >
+                        <PlusIcon className="w-4 h-4" />
+                        <span>Add Row</span>
+                      </button>
+                      <button
+                        onClick={handleRefresh}
+                        className="btn-secondary p-2"
+                        title="Refresh"
+                      >
+                        <ArrowPathIcon className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Data Table */}
+                  <div className="flex-1 overflow-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                    {loading ? (
+                      <div className="flex items-center justify-center h-full">
+                        <div className="spinner w-8 h-8"></div>
+                      </div>
+                    ) : error ? (
+                      <div className="flex items-center justify-center h-full p-8">
+                        <div className="text-center">
+                          <InformationCircleIcon className="w-12 h-12 text-red-500 mx-auto mb-2" />
+                          <p className="text-red-600 dark:text-red-400">{error}</p>
+                        </div>
+                      </div>
+                    ) : tableData && tableData.rows.length > 0 ? (
+                      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                              Actions
+                            </th>
+                            {tableData.columns.map((col) => (
+                              <th
+                                key={col}
+                                className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"
+                              >
+                                {col}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                          {showAddRow && (
+                            <tr className="bg-green-50 dark:bg-green-900/20">
+                              <td className="px-4 py-2 whitespace-nowrap">
+                                <div className="flex space-x-1">
+                                  <button
+                                    onClick={handleSaveNewRow}
+                                    className="text-green-600 hover:text-green-800 dark:text-green-400"
+                                    title="Save"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    onClick={() => setShowAddRow(false)}
+                                    className="text-red-600 hover:text-red-800 dark:text-red-400"
+                                    title="Cancel"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </td>
+                              {tableData.columns.map((col) => (
+                                <td key={col} className="px-4 py-2">
+                                  <input
+                                    type="text"
+                                    value={newRowData[col] || ''}
+                                    onChange={(e) =>
+                                      setNewRowData({ ...newRowData, [col]: e.target.value })
+                                    }
+                                    className="form-input text-sm"
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          )}
+                          {tableData.rows.map((row, index) => (
+                            <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                              <td className="px-4 py-2 whitespace-nowrap">
+                                {editingRow === index ? (
+                                  <div className="flex space-x-1">
+                                    <button
+                                      onClick={handleSaveEdit}
+                                      className="text-green-600 hover:text-green-800 dark:text-green-400"
+                                      title="Save"
+                                    >
+                                      ✓
+                                    </button>
+                                    <button
+                                      onClick={handleCancelEdit}
+                                      className="text-red-600 hover:text-red-800 dark:text-red-400"
+                                      title="Cancel"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex space-x-1">
+                                    <button
+                                      onClick={() => handleEditRow(index, row)}
+                                      className="text-blue-600 hover:text-blue-800 dark:text-blue-400"
+                                      title="Edit"
+                                    >
+                                      <PencilIcon className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteRow(row)}
+                                      className="text-red-600 hover:text-red-800 dark:text-red-400"
+                                      title="Delete"
+                                    >
+                                      <TrashIcon className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                              {tableData.columns.map((col) => (
+                                <td
+                                  key={col}
+                                  className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100"
+                                >
+                                  {editingRow === index ? (
+                                    <input
+                                      type="text"
+                                      value={editedData[col] || ''}
+                                      onChange={(e) =>
+                                        setEditedData({ ...editedData, [col]: e.target.value })
+                                      }
+                                      className="form-input text-sm"
+                                    />
+                                  ) : (
+                                    <span className="truncate block max-w-xs">
+                                      {row[col] === null ? (
+                                        <span className="text-gray-400 italic">NULL</span>
+                                      ) : (
+                                        String(row[col])
+                                      )}
+                                    </span>
+                                  )}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <p className="text-gray-500 dark:text-gray-400">No data available</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Pagination */}
+                  {tableData && tableData.rows.length > 0 && (
+                    <div className="flex items-center justify-between mt-4">
+                      <div className="text-sm text-gray-700 dark:text-gray-300">
+                        Showing {(currentPage - 1) * pageSize + 1} to{' '}
+                        {Math.min(currentPage * pageSize, totalRows)} of {totalRows} rows
+                        {tableData.executionTime && (
+                          <span className="ml-2 text-gray-500">
+                            ({tableData.executionTime}ms)
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <select
+                          value={pageSize}
+                          onChange={(e) => {
+                            setPageSize(Number(e.target.value));
+                            setCurrentPage(1);
+                          }}
+                          className="form-select text-sm"
+                        >
+                          <option value="25">25 per page</option>
+                          <option value="50">50 per page</option>
+                          <option value="100">100 per page</option>
+                          <option value="250">250 per page</option>
+                        </select>
+                        <button
+                          onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                          disabled={currentPage === 1}
+                          className="btn-secondary px-3 py-1 text-sm disabled:opacity-50"
+                        >
+                          Previous
+                        </button>
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                          Page {currentPage} of {totalPages}
+                        </span>
+                        <button
+                          onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                          disabled={currentPage === totalPages}
+                          className="btn-secondary px-3 py-1 text-sm disabled:opacity-50"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Structure Tab */}
+              {activeTab === 'structure' && selectedTable && (
+                <div className="h-full overflow-auto">
+                  <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4">
+                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Table: {selectedTable}
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {totalRows} rows
+                    </p>
+                  </div>
+
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                      <thead className="bg-gray-50 dark:bg-gray-900">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                            Column
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                            Type
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                            Null
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                            Default
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                            Key
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                        {tableSchema.map((col) => (
+                          <tr key={col.name}>
+                            <td className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
+                              {col.name}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {col.type}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {col.notnull ? 'NO' : 'YES'}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {col.dflt_value || '-'}
+                            </td>
+                            <td className="px-4 py-2 text-sm">
+                              {col.pk ? (
+                                <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded text-xs font-medium">
+                                  PRIMARY
+                                </span>
+                              ) : (
+                                '-'
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Query Tab */}
+              {activeTab === 'query' && (
+                <div className="h-full flex flex-col space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       SQL Query
@@ -413,174 +758,91 @@ export function DatabaseBrowser({ isOpen, onClose, site }: DatabaseBrowserProps)
                     <textarea
                       value={sqlQuery}
                       onChange={(e) => setSqlQuery(e.target.value)}
-                      className="w-full h-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white font-mono text-sm"
-                      placeholder="Enter your SQL query here..."
+                      placeholder="SELECT * FROM wp_posts WHERE post_status = 'publish' LIMIT 10;"
+                      className="form-input font-mono text-sm h-32 resize-none"
                     />
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={handleExecuteQuery}
-                        disabled={isExecuting || !sqlQuery.trim()}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-                      >
-                        {isExecuting ? (
-                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <CommandLineIcon className="w-4 h-4" />
-                        )}
-                        <span>{isExecuting ? 'Executing...' : 'Execute Query'}</span>
-                      </button>
-                      <button
-                        onClick={() => setSqlQuery('')}
-                        className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors"
-                      >
-                        Clear
-                      </button>
-                    </div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                      Tip: Use LIMIT to avoid large result sets
-                    </div>
-                  </div>
-                </div>
-              </div>
 
-              {/* Query Results */}
-              <div className="flex-1 overflow-auto p-6">
-                {queryResults.length === 0 ? (
-                  <div className="text-center py-12">
-                    <CommandLineIcon className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
-                    <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No queries executed</h3>
-                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                      Enter a SQL query above and click Execute to see results
-                    </p>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleExecuteQuery}
+                      disabled={loading || !sqlQuery.trim()}
+                      className="btn-primary flex items-center space-x-2"
+                    >
+                      <CodeBracketIcon className="w-4 h-4" />
+                      <span>Execute</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSqlQuery('');
+                        setQueryResult(null);
+                        setError(null);
+                      }}
+                      className="btn-secondary"
+                    >
+                      Clear
+                    </button>
                   </div>
-                ) : (
-                  <div className="space-y-6">
-                    {queryResults.map((result, index) => (
-                      <div key={index} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                        <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                Query #{queryResults.length - index}
-                              </div>
-                              <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
-                                {result.query}
-                              </div>
-                            </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400">
-                              {result.executionTime.toFixed(3)}s
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {result.columns && result.rows ? (
-                          <div className="overflow-x-auto">
-                            <table className="w-full">
-                              <thead className="bg-gray-100 dark:bg-gray-600">
-                                <tr>
-                                  {result.columns.map((column) => (
-                                    <th key={column} className="px-4 py-2 text-left text-sm font-medium text-gray-900 dark:text-white">
-                                      {column}
-                                    </th>
+
+                  {error && (
+                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                      <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                    </div>
+                  )}
+
+                  {queryResult && (
+                    <div className="flex-1 overflow-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                      {queryResult.rows && queryResult.rows.length > 0 ? (
+                        <>
+                          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0">
+                              <tr>
+                                {queryResult.columns.map((col) => (
+                                  <th
+                                    key={col}
+                                    className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"
+                                  >
+                                    {col}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                              {queryResult.rows.map((row, index) => (
+                                <tr key={index}>
+                                  {queryResult.columns.map((col) => (
+                                    <td
+                                      key={col}
+                                      className="px-4 py-2 text-sm text-gray-900 dark:text-gray-100"
+                                    >
+                                      <span className="truncate block max-w-xs">
+                                        {row[col] === null ? (
+                                          <span className="text-gray-400 italic">NULL</span>
+                                        ) : (
+                                          String(row[col])
+                                        )}
+                                      </span>
+                                    </td>
                                   ))}
                                 </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                                {result.rows.map((row, rowIndex) => (
-                                  <tr key={rowIndex} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                    {row.map((cell, cellIndex) => (
-                                      <td key={cellIndex} className="px-4 py-2 text-sm text-gray-900 dark:text-gray-300">
-                                        {cell || <span className="text-gray-400 italic">NULL</span>}
-                                      </td>
-                                    ))}
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                              ))}
+                            </tbody>
+                          </table>
+                          <div className="p-3 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400">
+                            {queryResult.rowCount} rows returned in {queryResult.executionTime}ms
                           </div>
-                        ) : (
-                          <div className="px-4 py-3">
-                            <div className="text-sm text-green-600 dark:text-green-400">
-                              Query executed successfully. {result.affectedRows} rows affected.
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'structure' && selectedTable && (
-            <div className="h-full overflow-auto p-6">
-              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                    Table Structure: {selectedTable}
-                  </h3>
+                        </>
+                      ) : (
+                        <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                          Query executed successfully. No rows returned.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                
-                {loading ? (
-                  <div className="p-8 text-center">
-                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <div className="text-gray-500 dark:text-gray-400">Loading table structure...</div>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-100 dark:bg-gray-600">
-                        <tr>
-                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 dark:text-white">Field</th>
-                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 dark:text-white">Type</th>
-                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 dark:text-white">Null</th>
-                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 dark:text-white">Key</th>
-                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 dark:text-white">Default</th>
-                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 dark:text-white">Extra</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                        {tableColumns.map((column) => (
-                          <tr key={column.field} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                            <td className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
-                              {column.field}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300">
-                              {column.type}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300">
-                              {column.null ? 'YES' : 'NO'}
-                            </td>
-                            <td className="px-4 py-2 text-sm">
-                              {column.key && (
-                                <span className={`px-2 py-1 text-xs rounded-full ${
-                                  column.key === 'PRI' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                                  column.key === 'UNI' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
-                                  column.key === 'MUL' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                                  'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-                                }`}>
-                                  {column.key}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300">
-                              {column.default || <span className="text-gray-400 italic">NULL</span>}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300">
-                              {column.extra || '-'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

@@ -15,10 +15,13 @@ export interface WordPressSite {
     phpVersion: string;
     wordPressVersion: string;
     webServer: "nginx" | "apache"; // Current web server
-    database: "mysql" | "mariadb"; // Database type
+    webServerVersion?: string; // Web server version
+    database: "mysql" | "mariadb" | "sqlite"; // Database type
+    databaseVersion?: string; // Database version
     status: SiteStatus;
     ssl: boolean;
     multisite: boolean;
+    wpLanguage?: string; // WordPress language
     xdebug?: boolean; // Xdebug configuration
     created: Date;
     lastAccessed?: Date;
@@ -46,8 +49,12 @@ export interface SiteConfig {
     adminPassword: string;
     adminEmail: string;
     webServer: "nginx" | "apache";
+    webServerVersion?: string; // e.g., "1.25", "2.4"
+    database: "mysql" | "mariadb" | "sqlite";
+    databaseVersion?: string; // e.g., "8.0", "10.11", "3.42"
     ssl: boolean;
     multisite: boolean;
+    wpLanguage?: string; // WordPress language (default: 'en_US')
     plugins?: string[];
     themes?: string[];
     customServices?: DockerService[];
@@ -59,11 +66,21 @@ export interface CreateSiteRequest {
     phpVersion: string;
     wordPressVersion?: string;
     path?: string;
+    // Database options
+    database?: "mysql" | "mariadb" | "sqlite";
+    databaseVersion?: string;
+    // Web server options
+    webServer?: "nginx" | "apache";
+    webServerVersion?: string;
+    // SSL and Multisite
     ssl?: boolean;
     multisite?: boolean;
+    // WordPress admin settings
     adminUser?: string;
     adminPassword?: string;
     adminEmail?: string;
+    wpLanguage?: string; // WordPress language (default: 'en_US')
+    // Templates and themes
     template?: string;
     plugins?: string[];
     themes?: string[];
@@ -113,9 +130,12 @@ export interface BlueprintConfig {
     wordPressVersion?: string;
     phpVersion: string;
     webServer: "nginx" | "apache";
-    database: "mysql" | "mariadb";
+    webServerVersion?: string;
+    database: "mysql" | "mariadb" | "sqlite";
+    databaseVersion?: string;
     ssl: boolean;
     multisite: boolean;
+    wpLanguage?: string;
 
     // WordPress Configuration
     wpConfig?: {

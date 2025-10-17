@@ -87,20 +87,10 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
       setFormData(prev => ({
         ...prev,
         adminPassword: generateSecurePassword(),
-        adminEmail: '' // Will be set based on domain
+        adminEmail: 'admin@localhost.test'
       }));
     }
   }, []);
-
-  // Update admin email when site name or domain changes
-  useEffect(() => {
-    if (!formData.adminEmail || formData.adminEmail === 'admin@localhost.test') {
-      const domain = formData.domain || `${formData.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.local`;
-      if (domain && formData.name) {
-        setFormData(prev => ({ ...prev, adminEmail: `admin@${domain}` }));
-      }
-    }
-  }, [formData.name, formData.domain]);
 
   // Update database version when database type changes
   useEffect(() => {
@@ -294,7 +284,7 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
       multisite: false,
       adminUser: 'admin',
       adminPassword: generateSecurePassword(),
-      adminEmail: '', // Will be auto-generated based on domain
+      adminEmail: 'admin@localhost.test',
       wpLanguage: 'en_US',
     });
     setError(null);

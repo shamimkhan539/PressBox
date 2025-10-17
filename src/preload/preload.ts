@@ -281,6 +281,135 @@ export interface ElectronAPI {
         }>;
     };
 
+    // Database Browser
+    database: {
+        getTables: (siteName: string) => Promise<
+            Array<{
+                name: string;
+                sql: string;
+                type: string;
+            }>
+        >;
+        getSchema: (
+            siteName: string,
+            tableName: string
+        ) => Promise<
+            Array<{
+                cid: number;
+                name: string;
+                type: string;
+                notnull: number;
+                dflt_value: any;
+                pk: number;
+            }>
+        >;
+        getIndexes: (siteName: string, tableName: string) => Promise<any[]>;
+        getTableData: (
+            siteName: string,
+            tableName: string,
+            page: number,
+            pageSize: number,
+            searchTerm?: string,
+            searchColumn?: string
+        ) => Promise<{
+            columns: string[];
+            rows: any[];
+            rowCount: number;
+            executionTime: number;
+        }>;
+        getRowCount: (
+            siteName: string,
+            tableName: string,
+            searchTerm?: string,
+            searchColumn?: string
+        ) => Promise<number>;
+        query: (
+            siteName: string,
+            sql: string,
+            params?: any[]
+        ) => Promise<{
+            columns: string[];
+            rows: any[];
+            rowCount: number;
+            executionTime: number;
+        }>;
+        execute: (
+            siteName: string,
+            sql: string,
+            params?: any[]
+        ) => Promise<{
+            changes: number;
+            lastInsertRowid: number | bigint;
+        }>;
+        insertRow: (
+            siteName: string,
+            tableName: string,
+            data: Record<string, any>
+        ) => Promise<{
+            success: boolean;
+            id?: number | bigint;
+            error?: string;
+        }>;
+        updateRow: (
+            siteName: string,
+            tableName: string,
+            data: Record<string, any>,
+            whereClause: string,
+            whereParams: any[]
+        ) => Promise<{
+            success: boolean;
+            changes?: number;
+            error?: string;
+        }>;
+        deleteRow: (
+            siteName: string,
+            tableName: string,
+            whereClause: string,
+            whereParams: any[]
+        ) => Promise<{
+            success: boolean;
+            changes?: number;
+            error?: string;
+        }>;
+        exportDatabase: (
+            siteName: string,
+            exportPath: string,
+            tables?: string[]
+        ) => Promise<{
+            success: boolean;
+            error?: string;
+        }>;
+        importDatabase: (
+            siteName: string,
+            importPath: string
+        ) => Promise<{
+            success: boolean;
+            error?: string;
+        }>;
+        executeRaw: (
+            siteName: string,
+            sql: string
+        ) => Promise<{
+            success: boolean;
+            result?: any;
+            error?: string;
+        }>;
+        getDatabasePath: (siteName: string) => Promise<string>;
+        closeDatabase: (siteName: string) => Promise<{ success: boolean }>;
+        openBrowser: (siteName: string) => Promise<{ success: boolean }>;
+        closeBrowser: () => Promise<{ success: boolean }>;
+    };
+
+    // File Dialogs
+    dialog: {
+        showSaveDialog: (
+            options: any
+        ) => Promise<{ filePath?: string; canceled: boolean }>;
+        showOpenDialog: (
+            options: any
+        ) => Promise<{ filePaths?: string[]; canceled: boolean }>;
+    };
+
     // Events
     on: (channel: string, callback: (...args: any[]) => void) => void;
     off: (channel: string, callback: (...args: any[]) => void) => void;
@@ -310,6 +439,9 @@ interface CreateSiteConfig {
     template?: string;
     plugins?: string[];
     themes?: string[];
+    adminUser?: string;
+    adminPassword?: string;
+    adminEmail?: string;
 }
 
 interface DockerImage {
@@ -542,6 +674,114 @@ const electronAPI: ElectronAPI = {
         disable: () => ipcRenderer.invoke("nonadmin:disable"),
         resetPreferences: () =>
             ipcRenderer.invoke("nonadmin:reset-preferences"),
+    },
+
+    // Database Browser
+    database: {
+        getTables: (siteName: string) =>
+            ipcRenderer.invoke("database:get-tables", siteName),
+        getSchema: (siteName: string, tableName: string) =>
+            ipcRenderer.invoke("database:get-schema", siteName, tableName),
+        getIndexes: (siteName: string, tableName: string) =>
+            ipcRenderer.invoke("database:get-indexes", siteName, tableName),
+        getTableData: (
+            siteName: string,
+            tableName: string,
+            page: number,
+            pageSize: number,
+            searchTerm?: string,
+            searchColumn?: string
+        ) =>
+            ipcRenderer.invoke(
+                "database:get-table-data",
+                siteName,
+                tableName,
+                page,
+                pageSize,
+                searchTerm,
+                searchColumn
+            ),
+        getRowCount: (
+            siteName: string,
+            tableName: string,
+            searchTerm?: string,
+            searchColumn?: string
+        ) =>
+            ipcRenderer.invoke(
+                "database:get-row-count",
+                siteName,
+                tableName,
+                searchTerm,
+                searchColumn
+            ),
+        query: (siteName: string, sql: string, params?: any[]) =>
+            ipcRenderer.invoke("database:query", siteName, sql, params),
+        execute: (siteName: string, sql: string, params?: any[]) =>
+            ipcRenderer.invoke("database:execute", siteName, sql, params),
+        insertRow: (
+            siteName: string,
+            tableName: string,
+            data: Record<string, any>
+        ) =>
+            ipcRenderer.invoke(
+                "database:insert-row",
+                siteName,
+                tableName,
+                data
+            ),
+        updateRow: (
+            siteName: string,
+            tableName: string,
+            data: Record<string, any>,
+            whereClause: string,
+            whereParams: any[]
+        ) =>
+            ipcRenderer.invoke(
+                "database:update-row",
+                siteName,
+                tableName,
+                data,
+                whereClause,
+                whereParams
+            ),
+        deleteRow: (
+            siteName: string,
+            tableName: string,
+            whereClause: string,
+            whereParams: any[]
+        ) =>
+            ipcRenderer.invoke(
+                "database:delete-row",
+                siteName,
+                tableName,
+                whereClause,
+                whereParams
+            ),
+        exportDatabase: (
+            siteName: string,
+            exportPath: string,
+            tables?: string[]
+        ) =>
+            ipcRenderer.invoke("database:export", siteName, exportPath, tables),
+        importDatabase: (siteName: string, importPath: string) =>
+            ipcRenderer.invoke("database:import", siteName, importPath),
+        executeRaw: (siteName: string, sql: string) =>
+            ipcRenderer.invoke("database:execute-raw", siteName, sql),
+        getDatabasePath: (siteName: string) =>
+            ipcRenderer.invoke("database:get-path", siteName),
+        closeDatabase: (siteName: string) =>
+            ipcRenderer.invoke("database:close", siteName),
+        openBrowser: (siteName: string) =>
+            ipcRenderer.invoke("database-browser:open", siteName),
+        closeBrowser: () => ipcRenderer.invoke("database-browser:close"),
+    },
+
+    // File Dialogs
+    dialog: {
+        showSaveDialog: (options) =>
+            ipcRenderer.invoke("dialog:show-save", options),
+        showOpenDialog: (options) =>
+            ipcRenderer.invoke("dialog:show-open", options),
     },
 
     // Event Handling

@@ -11,6 +11,8 @@ import { WPCLIManager } from "../services/wpCliManager";
 import { EnvironmentManager } from "../services/environmentManager";
 import { NonAdminMode } from "../services/nonAdminMode";
 import { CreateSiteRequest } from "../../shared/types";
+import { databaseService } from "../services/databaseService";
+import { databaseBrowserService } from "../services/databaseBrowserService";
 
 /**
  * IPC Handlers
@@ -49,6 +51,7 @@ export class IPCHandlers {
         this.registerSystemHandlers();
         this.registerServerHandlers();
         this.registerNonAdminHandlers();
+        this.registerDatabaseHandlers();
 
         // Only register hosts file handlers if non-admin mode is disabled
         if (!NonAdminMode.isEnabled()) {
@@ -495,7 +498,7 @@ export class IPCHandlers {
 
         ipcMain.handle("nonadmin:enable", async () => {
             try {
-                NonAdminMode.enable(true); // Save preference
+                NonAdminMode.enable(this.wordpressManager, true); // Save preference
                 console.log("✅ Non-admin mode enabled via IPC");
                 return NonAdminMode.getExplanation();
             } catch (error) {
@@ -506,7 +509,7 @@ export class IPCHandlers {
 
         ipcMain.handle("nonadmin:disable", async () => {
             try {
-                NonAdminMode.disable(true); // Save preference
+                NonAdminMode.disable(this.wordpressManager, true); // Save preference
                 console.log("✅ Admin mode enabled via IPC");
                 return NonAdminMode.getExplanation();
             } catch (error) {
@@ -1311,5 +1314,304 @@ export class IPCHandlers {
                 }
             }
         );
+    }
+
+    /**
+     * Register Database Browser handlers
+     */
+    private registerDatabaseHandlers(): void {
+        // Get list of tables
+        ipcMain.handle("database:get-tables", async (_, siteName: string) => {
+            try {
+                return databaseService.getTables(siteName);
+            } catch (error) {
+                console.error("Failed to get tables:", error);
+                throw error;
+            }
+        });
+
+        // Get table schema
+        ipcMain.handle(
+            "database:get-schema",
+            async (_, siteName: string, tableName: string) => {
+                try {
+                    return databaseService.getTableSchema(siteName, tableName);
+                } catch (error) {
+                    console.error("Failed to get table schema:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Get table indexes
+        ipcMain.handle(
+            "database:get-indexes",
+            async (_, siteName: string, tableName: string) => {
+                try {
+                    return databaseService.getTableIndexes(siteName, tableName);
+                } catch (error) {
+                    console.error("Failed to get table indexes:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Get table data with pagination
+        ipcMain.handle(
+            "database:get-table-data",
+            async (
+                _,
+                siteName: string,
+                tableName: string,
+                page: number,
+                pageSize: number,
+                searchTerm?: string,
+                searchColumn?: string
+            ) => {
+                try {
+                    return databaseService.getTableData(
+                        siteName,
+                        tableName,
+                        page,
+                        pageSize,
+                        searchTerm,
+                        searchColumn
+                    );
+                } catch (error) {
+                    console.error("Failed to get table data:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Get table row count
+        ipcMain.handle(
+            "database:get-row-count",
+            async (
+                _,
+                siteName: string,
+                tableName: string,
+                searchTerm?: string,
+                searchColumn?: string
+            ) => {
+                try {
+                    return databaseService.getTableRowCount(
+                        siteName,
+                        tableName,
+                        searchTerm,
+                        searchColumn
+                    );
+                } catch (error) {
+                    console.error("Failed to get row count:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Execute query
+        ipcMain.handle(
+            "database:query",
+            async (_, siteName: string, sql: string, params?: any[]) => {
+                try {
+                    return databaseService.query(siteName, sql, params);
+                } catch (error) {
+                    console.error("Failed to execute query:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Execute SQL statement
+        ipcMain.handle(
+            "database:execute",
+            async (_, siteName: string, sql: string, params?: any[]) => {
+                try {
+                    return databaseService.execute(siteName, sql, params);
+                } catch (error) {
+                    console.error("Failed to execute SQL:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Insert row
+        ipcMain.handle(
+            "database:insert-row",
+            async (
+                _,
+                siteName: string,
+                tableName: string,
+                data: Record<string, any>
+            ) => {
+                try {
+                    return databaseService.insertRow(siteName, tableName, data);
+                } catch (error) {
+                    console.error("Failed to insert row:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Update row
+        ipcMain.handle(
+            "database:update-row",
+            async (
+                _,
+                siteName: string,
+                tableName: string,
+                data: Record<string, any>,
+                whereClause: string,
+                whereParams: any[]
+            ) => {
+                try {
+                    return databaseService.updateRow(
+                        siteName,
+                        tableName,
+                        data,
+                        whereClause,
+                        whereParams
+                    );
+                } catch (error) {
+                    console.error("Failed to update row:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Delete row
+        ipcMain.handle(
+            "database:delete-row",
+            async (
+                _,
+                siteName: string,
+                tableName: string,
+                whereClause: string,
+                whereParams: any[]
+            ) => {
+                try {
+                    return databaseService.deleteRow(
+                        siteName,
+                        tableName,
+                        whereClause,
+                        whereParams
+                    );
+                } catch (error) {
+                    console.error("Failed to delete row:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Export database
+        ipcMain.handle(
+            "database:export",
+            async (
+                _,
+                siteName: string,
+                exportPath: string,
+                tables?: string[]
+            ) => {
+                try {
+                    return await databaseService.exportDatabase(
+                        siteName,
+                        exportPath,
+                        tables
+                    );
+                } catch (error) {
+                    console.error("Failed to export database:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Import database
+        ipcMain.handle(
+            "database:import",
+            async (_, siteName: string, importPath: string) => {
+                try {
+                    return await databaseService.importDatabase(
+                        siteName,
+                        importPath
+                    );
+                } catch (error) {
+                    console.error("Failed to import database:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Execute raw SQL
+        ipcMain.handle(
+            "database:execute-raw",
+            async (_, siteName: string, sql: string) => {
+                try {
+                    return databaseService.executeRaw(siteName, sql);
+                } catch (error) {
+                    console.error("Failed to execute raw SQL:", error);
+                    throw error;
+                }
+            }
+        );
+
+        // Get database path
+        ipcMain.handle("database:get-path", async (_, siteName: string) => {
+            try {
+                return databaseService.getDatabasePath(siteName);
+            } catch (error) {
+                console.error("Failed to get database path:", error);
+                throw error;
+            }
+        });
+
+        // Close database connection
+        ipcMain.handle("database:close", async (_, siteName: string) => {
+            try {
+                databaseService.closeDatabase(siteName);
+                return { success: true };
+            } catch (error) {
+                console.error("Failed to close database:", error);
+                throw error;
+            }
+        });
+
+        // File dialog handlers
+        ipcMain.handle("dialog:show-save", async (_, options) => {
+            try {
+                return await dialog.showSaveDialog(options);
+            } catch (error) {
+                console.error("Failed to show save dialog:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle("dialog:show-open", async (_, options) => {
+            try {
+                return await dialog.showOpenDialog(options);
+            } catch (error) {
+                console.error("Failed to show open dialog:", error);
+                throw error;
+            }
+        });
+
+        // Database browser handlers
+        ipcMain.handle("database-browser:open", async (_, siteName: string) => {
+            try {
+                await databaseBrowserService.openDatabaseBrowser(siteName);
+                return { success: true };
+            } catch (error) {
+                console.error("Failed to open database browser:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle("database-browser:close", async () => {
+            try {
+                databaseBrowserService.closeDatabaseBrowser();
+                return { success: true };
+            } catch (error) {
+                console.error("Failed to close database browser:", error);
+                throw error;
+            }
+        });
     }
 }

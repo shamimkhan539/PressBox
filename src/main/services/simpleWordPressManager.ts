@@ -52,10 +52,18 @@ interface SimpleWordPressSite {
     phpVersion: string;
     created: Date;
     lastAccessed?: Date;
+    adminUser?: string;
+    adminPassword?: string;
+    adminEmail?: string;
 }
 
 // Conversion functions
-function simpleToWordPress(simple: SimpleWordPressSite): WordPressSite {
+function simpleToWordPress(
+    simple: SimpleWordPressSite,
+    adminUser?: string,
+    adminPassword?: string,
+    adminEmail?: string
+): WordPressSite {
     return {
         id: simple.id,
         name: simple.name,
@@ -79,9 +87,9 @@ function simpleToWordPress(simple: SimpleWordPressSite): WordPressSite {
             dbUser: "wp_user",
             dbPassword: "password",
             dbRootPassword: "rootpass",
-            adminUser: "admin",
-            adminPassword: "password",
-            adminEmail: "admin@localhost.test",
+            adminUser: adminUser || "admin",
+            adminPassword: adminPassword || "password",
+            adminEmail: adminEmail || "admin@localhost.test",
             webServer: "nginx",
             ssl: false,
             multisite: false,
@@ -317,10 +325,20 @@ export class SimpleWordPressManager {
                 adminUrl: `${siteUrl}/wp-admin`,
                 phpVersion: config.phpVersion || "system",
                 created: new Date(),
+                adminUser: config.adminUser,
+                adminPassword: config.adminPassword,
+                adminEmail: config.adminEmail,
             };
 
             // Save site configuration
-            await this.saveSiteConfig(simpleToWordPress(site));
+            await this.saveSiteConfig(
+                simpleToWordPress(
+                    site,
+                    config.adminUser,
+                    config.adminPassword,
+                    config.adminEmail
+                )
+            );
 
             // Add to sites map
             this.sites.set(siteId, site);
@@ -331,7 +349,12 @@ export class SimpleWordPressManager {
             console.log(`   Path: ${sitePath}`);
             console.log(`   URL: ${site.url}`);
 
-            return simpleToWordPress(site);
+            return simpleToWordPress(
+                site,
+                config.adminUser,
+                config.adminPassword,
+                config.adminEmail
+            );
         } catch (error) {
             console.error(
                 `❌ Failed to create site ${config.siteName}:`,
@@ -724,7 +747,14 @@ require_once ABSPATH . 'wp-settings.php';
             site.status = SiteStatus.RUNNING;
             site.lastAccessed = new Date();
 
-            await this.saveSiteConfig(simpleToWordPress(site));
+            await this.saveSiteConfig(
+                simpleToWordPress(
+                    site,
+                    site.adminUser,
+                    site.adminPassword,
+                    site.adminEmail
+                )
+            );
 
             console.log(`✅ Site started and installed successfully!`);
             console.log(`   ${site.name} is now running at: ${site.url}`);
@@ -912,7 +942,14 @@ require_once ABSPATH . 'wp-settings.php';
         }
 
         site.status = SiteStatus.STOPPED;
-        await this.saveSiteConfig(simpleToWordPress(site));
+        await this.saveSiteConfig(
+            simpleToWordPress(
+                site,
+                site.adminUser,
+                site.adminPassword,
+                site.adminEmail
+            )
+        );
 
         console.log(`✅ Site ${site.name} stopped`);
     }
@@ -951,7 +988,14 @@ require_once ABSPATH . 'wp-settings.php';
      * Get all sites
      */
     async getSites(): Promise<WordPressSite[]> {
-        return Array.from(this.sites.values()).map(simpleToWordPress);
+        return Array.from(this.sites.values()).map((site) =>
+            simpleToWordPress(
+                site,
+                site.adminUser,
+                site.adminPassword,
+                site.adminEmail
+            )
+        );
     }
 
     /**
@@ -959,7 +1003,14 @@ require_once ABSPATH . 'wp-settings.php';
      */
     async getSite(siteId: string): Promise<WordPressSite | undefined> {
         const simpleSite = this.sites.get(siteId);
-        return simpleSite ? simpleToWordPress(simpleSite) : undefined;
+        return simpleSite
+            ? simpleToWordPress(
+                  simpleSite,
+                  simpleSite.adminUser,
+                  simpleSite.adminPassword,
+                  simpleSite.adminEmail
+              )
+            : undefined;
     }
 
     // Helper methods
@@ -1140,6 +1191,81 @@ require_once ABSPATH . 'wp-settings.php';
             req.write(postData.toString());
             req.end();
         });
+    }
+
+    /**
+     * Update all site URLs when admin mode changes
+     */
+    async updateSiteUrlsForAdminMode(): Promise<void> {
+        console.log("🔄 Updating site URLs for admin mode change...");
+
+        for (const [siteId, site] of this.sites) {
+            // Update site URL based on current admin mode
+            const newUrl = NonAdminMode.getSiteUrl(
+                site.name,
+                site.domain,
+                site.port
+            );
+            const newDomain = NonAdminMode.getEffectiveDomain(
+                site.name,
+                site.domain
+            );
+
+            if (site.url !== newUrl || site.domain !== newDomain) {
+                console.log(
+                    `   Updating ${site.name}: ${site.url} → ${newUrl}`
+                );
+                site.url = newUrl;
+                site.domain = newDomain;
+                site.adminUrl = `${newUrl}/wp-admin`;
+
+                // Update wp-config.php with new URLs
+                await this.updateWordPressUrls(site);
+
+                // Save updated configuration
+                await this.saveSiteConfig(
+                    simpleToWordPress(
+                        site,
+                        site.adminUser,
+                        site.adminPassword,
+                        site.adminEmail
+                    )
+                );
+            }
+        }
+
+        console.log("✅ Site URLs updated for admin mode change");
+    }
+
+    /**
+     * Update WordPress URLs in wp-config.php
+     */
+    private async updateWordPressUrls(
+        site: SimpleWordPressSite
+    ): Promise<void> {
+        const wpConfigPath = path.join(site.path, "wp-config.php");
+
+        try {
+            let wpConfig = await fs.readFile(wpConfigPath, "utf8");
+
+            // Update WP_HOME and WP_SITEURL
+            wpConfig = wpConfig.replace(
+                /define\(\s*['"]WP_HOME['"]\s*,\s*['"][^'"]*['"]\s*\);/,
+                `define( 'WP_HOME', '${site.url}' );`
+            );
+            wpConfig = wpConfig.replace(
+                /define\(\s*['"]WP_SITEURL['"]\s*,\s*['"][^'"]*['"]\s*\);/,
+                `define( 'WP_SITEURL', '${site.url}' );`
+            );
+
+            await fs.writeFile(wpConfigPath, wpConfig);
+            console.log(`   ✅ Updated wp-config.php URLs for ${site.name}`);
+        } catch (error) {
+            console.warn(
+                `   ⚠️ Failed to update wp-config.php for ${site.name}:`,
+                error
+            );
+        }
     }
 
     /**

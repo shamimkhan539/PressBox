@@ -193,6 +193,16 @@ export function Dashboard() {
     }
   };
 
+  const handleOpenDatabaseBrowser = async (site: WordPressSite) => {
+    try {
+      console.log('Opening database browser for site:', site.name);
+      await window.electronAPI.database.openBrowser(site.name);
+    } catch (error) {
+      console.error('Failed to open database browser:', error);
+      alert(`Failed to open database browser: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -405,16 +415,31 @@ export function Dashboard() {
                     
                     <div className="flex items-center space-x-2">
                       {site.status === 'running' && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleViewSite(site);
-                          }}
-                          className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                          title="View Site"
-                        >
-                          <EyeIcon className="w-4 h-4" />
-                        </button>
+                        <>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleViewSite(site);
+                            }}
+                            className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                            title="View Site"
+                          >
+                            <EyeIcon className="w-4 h-4" />
+                          </button>
+                          
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDatabaseBrowser(site);
+                            }}
+                            className="p-2 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors"
+                            title="Database Browser"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                            </svg>
+                          </button>
+                        </>
                       )}
                       
                       <button
