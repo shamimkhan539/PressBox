@@ -118,6 +118,7 @@ export class IPCHandlers {
         ipcMain.handle("sites:stop", async (_, siteId: string) => {
             try {
                 await this.wordpressManager.stopSite(siteId);
+                return { success: true };
             } catch (error) {
                 console.error("Failed to stop site:", error);
                 throw error;

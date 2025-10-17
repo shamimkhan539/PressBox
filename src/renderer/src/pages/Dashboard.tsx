@@ -155,20 +155,20 @@ export function Dashboard() {
       );
 
       // Call actual API to stop site
-      await window.electronAPI.sites.stop(siteId);
+      const result = await window.electronAPI.sites.stop(siteId);
 
       // Reload dashboard data to get updated status
       await loadDashboardData();
 
-      console.log(`Successfully stopped site: ${siteId}`);
-    } catch (error) {
+      console.log(`Successfully stopped site: ${siteId}`, result);
+    } catch (error: any) {
       console.error('Failed to stop site:', error);
-      // Revert status on error  
-      setSites(prevSites => 
-        prevSites.map(site => 
-          site.id === siteId ? { ...site, status: 'error' } : site
-        )
-      );
+      
+      // Show error message to user
+      alert(`Error stopping site: ${error.message || 'Unknown error'}`);
+      
+      // Reload to get actual status (site might have stopped despite error)
+      await loadDashboardData();
     }
   };
 
