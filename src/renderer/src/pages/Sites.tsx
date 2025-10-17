@@ -577,7 +577,7 @@ export function Sites() {
                   </div>
                   
                   {/* Advanced Tools Row */}
-                  <div className="flex space-x-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => handleQuickAction('cloneSite', { siteId: site.id })}
                       className="btn-secondary flex-1 text-sm py-2 flex items-center justify-center space-x-1"
