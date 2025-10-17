@@ -193,10 +193,9 @@ class PressBoxApp {
                 nodeIntegration: false,
                 contextIsolation: true,
                 // enableRemoteModule: false, // Deprecated
-                preload:
-                    process.env.NODE_ENV === "development"
-                        ? join(__dirname, "../preload/preload.js")
-                        : join(__dirname, "../preload/preload.js"),
+                preload: app.isPackaged
+                    ? join(__dirname, "../preload/preload.js")
+                    : join(__dirname, "../preload/preload.js"),
                 webSecurity: true,
             },
             icon: join(__dirname, "../../assets/icon.png"),
@@ -224,7 +223,17 @@ class PressBoxApp {
         if (process.env.NODE_ENV === "development") {
             this.mainWindow.loadURL("http://localhost:3000");
         } else {
-            this.mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+            // In production, the structure is:
+            // __dirname = app.asar/dist/main/main (where main.js is)
+            // renderer = app.asar/dist/renderer/index.html
+            const rendererPath = join(__dirname, "../../renderer/index.html");
+
+            console.log(`Loading renderer from: ${rendererPath}`);
+            console.log(`__dirname: ${__dirname}`);
+            console.log(`app.isPackaged: ${app.isPackaged}`);
+            console.log(`app.getAppPath(): ${app.getAppPath()}`);
+
+            this.mainWindow.loadFile(rendererPath);
         }
     }
 

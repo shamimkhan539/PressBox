@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { HashRouter } from 'react-router-dom';
 import App from './App.tsx';
 import './index.css';
 
@@ -9,6 +9,10 @@ import './index.css';
  * 
  * This is the main entry point for the React renderer process.
  * It initializes the React application and mounts it to the DOM.
+ * 
+ * Note: Using HashRouter instead of BrowserRouter for Electron compatibility.
+ * BrowserRouter doesn't work with file:// protocol, while HashRouter uses URL hash
+ * for routing which works perfectly in packaged Electron apps.
  */
 
 // Ensure we have access to the Electron API
@@ -22,8 +26,8 @@ const root = ReactDOM.createRoot(
 
 root.render(
   <React.StrictMode>
-    <BrowserRouter>
+    <HashRouter>
       <App />
-    </BrowserRouter>
+    </HashRouter>
   </React.StrictMode>
 );
