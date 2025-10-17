@@ -237,6 +237,7 @@ export class WordPressManager {
                         adminPassword: simpleConfig.adminPassword,
                         adminEmail: simpleConfig.adminEmail,
                         webServer: "nginx",
+                        database: "sqlite",
                         ssl: false,
                         multisite: false,
                     },
@@ -316,6 +317,7 @@ export class WordPressManager {
             adminPassword: request.adminPassword || this.generatePassword(),
             adminEmail: request.adminEmail || "admin@local.dev",
             webServer: "nginx",
+            database: request.database || "mysql",
             ssl: request.ssl || false,
             multisite: request.multisite || false,
         };
@@ -520,37 +522,46 @@ export class WordPressManager {
                 await this.stopSite(siteId);
             }
 
-            // Remove containers
-            await this.dockerManager.removeContainer(
-                `${site.name}_wordpress`,
-                true
-            );
-            await this.dockerManager.removeContainer(
-                `${site.name}_mysql`,
-                true
-            );
-
-            // Remove site directory
-            await fs.rmdir(site.path, { recursive: true });
-
-            // Remove domain from hosts file (only if not in non-admin mode)
-            if (!NonAdminMode.shouldBlockAdminOperations()) {
-                try {
-                    await HostsFileService.removeHostEntry(site.domain);
-                    console.log(
-                        `✅ Removed domain ${site.domain} from hosts file`
-                    );
-                } catch (error) {
-                    console.warn(
-                        `Failed to remove domain ${site.domain} from hosts file:`,
-                        error
-                    );
-                    // Don't fail site deletion if hosts file cleanup fails
-                }
-            } else {
+            if (this.useSimpleMode) {
+                // Use simple manager to delete site
                 console.log(
-                    `🔓 Skipping hosts file cleanup for ${site.domain} (non-admin mode)`
+                    `🗑️ Using simple manager to delete site: ${site.name}`
                 );
+                await this.simpleManager.deleteSite(siteId);
+                console.log(`✅ Site deleted via simple manager: ${site.name}`);
+            } else {
+                // Remove Docker containers
+                await this.dockerManager.removeContainer(
+                    `${site.name}_wordpress`,
+                    true
+                );
+                await this.dockerManager.removeContainer(
+                    `${site.name}_mysql`,
+                    true
+                );
+
+                // Remove site directory
+                await fs.rmdir(site.path, { recursive: true });
+
+                // Remove domain from hosts file (only if not in non-admin mode)
+                if (!NonAdminMode.shouldBlockAdminOperations()) {
+                    try {
+                        await HostsFileService.removeHostEntry(site.domain);
+                        console.log(
+                            `✅ Removed domain ${site.domain} from hosts file`
+                        );
+                    } catch (error) {
+                        console.warn(
+                            `Failed to remove domain ${site.domain} from hosts file:`,
+                            error
+                        );
+                        // Don't fail site deletion if hosts file cleanup fails
+                    }
+                } else {
+                    console.log(
+                        `🔓 Skipping hosts file cleanup for ${site.domain} (non-admin mode)`
+                    );
+                }
             }
 
             // Remove from memory

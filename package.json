@@ -30,7 +30,88 @@
         "package:win": "electron-forge package --platform=win32",
         "package:mac": "electron-forge package --platform=darwin",
         "package:linux": "electron-forge package --platform=linux",
-        "make:all": "electron-forge make --platform=win32,darwin,linux"
+        "make:all": "electron-forge make --platform=win32,darwin,linux",
+        "dist": "npm run build && electron-builder",
+        "dist:win": "npm run build && electron-builder --win",
+        "dist:win:portable": "npm run build && electron-builder --win portable",
+        "dist:win:installer": "npm run build && electron-builder --win nsis",
+        "dist:mac": "npm run build && electron-builder --mac",
+        "dist:linux": "npm run build && electron-builder --linux"
+    },
+    "build": {
+        "appId": "com.pressbox.app",
+        "productName": "PressBox",
+        "copyright": "Copyright © 2025 PressBox Team",
+        "directories": {
+            "output": "release",
+            "buildResources": "assets"
+        },
+        "files": [
+            "dist/**/*",
+            "package.json"
+        ],
+        "extraResources": [
+            {
+                "from": "assets",
+                "to": "assets",
+                "filter": [
+                    "**/*"
+                ]
+            }
+        ],
+        "win": {
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                },
+                {
+                    "target": "portable",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ],
+            "artifactName": "${productName}-${version}-${arch}.${ext}"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "perMachine": false,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true,
+            "shortcutName": "PressBox",
+            "deleteAppDataOnUninstall": false,
+            "runAfterFinish": true,
+            "displayLanguageSelector": false
+        },
+        "portable": {
+            "artifactName": "${productName}-${version}-portable.${ext}"
+        },
+        "mac": {
+            "target": [
+                "dmg",
+                "zip"
+            ],
+            "icon": "assets/icon.icns",
+            "category": "public.app-category.developer-tools",
+            "hardenedRuntime": true,
+            "gatekeeperAssess": false,
+            "entitlements": "assets/entitlements.mac.plist",
+            "entitlementsInherit": "assets/entitlements.mac.plist"
+        },
+        "linux": {
+            "target": [
+                "AppImage",
+                "deb",
+                "rpm"
+            ],
+            "icon": "assets/icon.png",
+            "category": "Development",
+            "maintainer": "PressBox Team"
+        }
     },
     "config": {
         "forge": {
@@ -99,6 +180,7 @@
         "cross-env": "^7.0.3",
         "cross-port-killer": "^1.4.0",
         "electron": "^35.7.5",
+        "electron-builder": "^26.0.12",
         "eslint": "^8.57.0",
         "eslint-plugin-react": "^7.34.2",
         "eslint-plugin-react-hooks": "^4.6.2",

@@ -10,6 +10,12 @@ build/
 out/
 .webpack/
 
+# Electron Builder outputs
+release/
+release-builds/
+app-builds/
+*.blockmap
+
 # Electron specific
 *.app
 *.dmg
@@ -19,10 +25,41 @@ out/
 *.rpm
 *.tar.gz
 *.zip
+*.snap
+*.flatpak
 
 # Electron Forge outputs
 .vite/
 makers/
+
+# macOS specific
+*.pkg
+*.icns
+
+# Windows specific
+*.msi
+*.msix
+win-unpacked/
+win-ia32-unpacked/
+win-arm64-unpacked/
+
+# Linux specific
+linux-unpacked/
+linux-ia32-unpacked/
+linux-arm64-unpacked/
+
+# macOS specific
+mac/
+mac-arm64/
+mac-universal/
+darwin-arm64/
+darwin-x64/
+*.dmg.blockmap
+
+# electron-builder cache
+.icon-set.cache
+.icon-ico
+.icon-icns
 
 # Environment variables
 .env
@@ -157,6 +194,22 @@ certificates/
 *.sql
 *.sql.gz
 
+# PressBox user data (created during app usage)
+PressBox/
+pressbox-data/
+temp/
+logs/
+*.log
+
+# MySQL/MariaDB data directories (if running locally)
+mysql-data/
+mariadb-data/
+
+# SQLite databases (if used for development)
+*.sqlite
+*.sqlite3
+*.db
+
 # Local development files
 .dev/
 local/
@@ -205,10 +258,37 @@ tramp
 config.local.json
 settings.local.json
 
+# Code signing certificates (NEVER COMMIT THESE!)
+*.pfx
+*.p12
+*.cer
+*.crt
+*.key
+*.pem
+certs/
+certificates/
+codesign/
+
+# App Store / Windows Store credentials
+*.provisionprofile
+*.mobileprovision
+
+# Environment-specific configs
+.env.production
+.env.staging
+secrets.json
+credentials.json
+
 # Backup files
 *.bak
 *.backup
 *.orig
+
+# electron-builder build cache
+.electron-builder/
+electron-builder-effective-config.yaml
+builder-effective-config.yaml
+builder-debug.yml
 
 # Archive files that might be created during development
 *.7z
