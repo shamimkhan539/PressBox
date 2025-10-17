@@ -128,20 +128,20 @@ export function Dashboard() {
       );
 
       // Call actual API to start site
-      await window.electronAPI.sites.start(siteId);
+      const result = await window.electronAPI.sites.start(siteId);
 
       // Reload dashboard data to get updated status
       await loadDashboardData();
 
-      console.log(`Successfully started site: ${siteId}`);
-    } catch (error) {
+      console.log(`Successfully started site: ${siteId}`, result);
+    } catch (error: any) {
       console.error('Failed to start site:', error);
-      // Revert status on error
-      setSites(prevSites => 
-        prevSites.map(site => 
-          site.id === siteId ? { ...site, status: 'error' } : site
-        )
-      );
+      
+      // Show error message to user
+      alert(`Error starting site: ${error.message || 'Unknown error'}`);
+      
+      // Reload to get actual status (site might have started despite error)
+      await loadDashboardData();
     }
   };
 

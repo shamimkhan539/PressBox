@@ -77,7 +77,7 @@ function simpleToWordPress(
         created: simple.created,
         lastAccessed: simple.lastAccessed,
         webServer: "nginx",
-        database: "mysql",
+        database: "sqlite", // Default to SQLite for simple sites
         ssl: false,
         multisite: false,
         config: {
@@ -91,6 +91,7 @@ function simpleToWordPress(
             adminPassword: adminPassword || "password",
             adminEmail: adminEmail || "admin@localhost.test",
             webServer: "nginx",
+            database: "sqlite", // Required field
             ssl: false,
             multisite: false,
         },
@@ -865,8 +866,8 @@ require_once ABSPATH . 'wp-settings.php';
      * Wait for PHP server to start
      */
     private async waitForServerStart(site: SimpleWordPressSite): Promise<void> {
-        const maxAttempts = 10;
-        const delay = 500;
+        const maxAttempts = 15; // Increased from 10
+        const delay = 1000; // Increased from 500ms to 1 second
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
@@ -874,7 +875,9 @@ require_once ABSPATH . 'wp-settings.php';
 
                 // Try to connect to the server - always use localhost for connection test
                 const testUrl = `http://localhost:${site.port}`;
-                console.log(`   Testing connection to: ${testUrl}`);
+                console.log(
+                    `   Testing connection to: ${testUrl} (attempt ${attempt}/${maxAttempts})`
+                );
                 await this.testConnection(testUrl);
 
                 console.log(`✅ PHP server is ready after ${attempt} attempts`);
@@ -886,6 +889,9 @@ require_once ABSPATH . 'wp-settings.php';
                     );
                 }
                 // Continue trying
+                console.log(
+                    `   ⏳ Server not ready yet, retrying... (${error instanceof Error ? error.message : "Unknown error"})`
+                );
             }
         }
     }
@@ -913,7 +919,8 @@ require_once ABSPATH . 'wp-settings.php';
                 reject(error);
             });
 
-            request.setTimeout(2000, () => {
+            request.setTimeout(5000, () => {
+                // Increased from 2000ms to 5000ms
                 request.destroy();
                 reject(new Error("Connection timeout"));
             });

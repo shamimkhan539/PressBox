@@ -109,6 +109,7 @@ export class IPCHandlers {
         ipcMain.handle("sites:start", async (_, siteId: string) => {
             try {
                 await this.wordpressManager.startSite(siteId);
+                return { success: true };
             } catch (error) {
                 console.error("Failed to start site:", error);
                 throw error;
