@@ -13,6 +13,9 @@ import { NonAdminMode } from "../services/nonAdminMode";
 import { CreateSiteRequest } from "../../shared/types";
 import { databaseService } from "../services/databaseService";
 import { databaseBrowserService } from "../services/databaseBrowserService";
+import { DatabaseServerManager } from "../services/databaseServerManager";
+import * as path from "path";
+import * as fs from "fs";
 
 /**
  * IPC Handlers
@@ -34,7 +37,12 @@ export class IPCHandlers {
             "📝 WordPressManager:",
             this.wordpressManager ? "initialized" : "null"
         );
+
+        // Initialize database server manager
+        this.databaseServerManager = new DatabaseServerManager();
     }
+
+    private databaseServerManager: DatabaseServerManager;
 
     /**
      * Register all IPC handlers
@@ -128,10 +136,17 @@ export class IPCHandlers {
 
         ipcMain.handle("sites:delete", async (_, siteId: string) => {
             try {
+                console.log(`🗑️  Attempting to delete site: ${siteId}`);
                 await this.wordpressManager.deleteSite(siteId);
+                console.log(`✅ Site deleted successfully: ${siteId}`);
+                return { success: true };
             } catch (error) {
-                console.error("Failed to delete site:", error);
-                throw error;
+                console.error("❌ Failed to delete site:", error);
+                const errorMessage =
+                    error instanceof Error
+                        ? error.message
+                        : "Unknown error occurred";
+                throw new Error(`Failed to delete site: ${errorMessage}`);
             }
         });
 
@@ -1322,6 +1337,206 @@ export class IPCHandlers {
      * Register Database Browser handlers
      */
     private registerDatabaseHandlers(): void {
+        // Test database connection
+        ipcMain.handle(
+            "database:test-connection",
+            async (_, type: string, version: string, port: number) => {
+                try {
+                    const mysql = await import("mysql2/promise");
+                    const connection = await mysql.createConnection({
+                        host: "localhost",
+                        port: port,
+                        user: "root",
+                        password: "",
+                        connectTimeout: 2000, // 2 second timeout
+                    });
+                    await connection.end();
+                    return true;
+                } catch (error) {
+                    return false;
+                }
+            }
+        );
+
+        // Get database server statuses
+        ipcMain.handle("database-server:get-statuses", async () => {
+            try {
+                return await this.databaseServerManager.getAllServerStatuses();
+            } catch (error) {
+                console.error("Failed to get database server statuses:", error);
+                throw error;
+            }
+        });
+
+        // Start database server
+        ipcMain.handle("database-server:start", async (_, server: any) => {
+            try {
+                return await this.databaseServerManager.startServer(server);
+            } catch (error) {
+                console.error("Failed to start database server:", error);
+                throw error;
+            }
+        });
+
+        // Stop database server
+        ipcMain.handle("database-server:stop", async (_, server: any) => {
+            try {
+                return await this.databaseServerManager.stopServer(server);
+            } catch (error) {
+                console.error("Failed to stop database server:", error);
+                throw error;
+            }
+        });
+
+        // Initialize database server
+        ipcMain.handle("database-server:initialize", async (_, server: any) => {
+            try {
+                return await this.databaseServerManager.initializeServer(
+                    server
+                );
+            } catch (error) {
+                console.error("Failed to initialize database server:", error);
+                throw error;
+            }
+        });
+
+        // Test database connection for diagnostics
+        ipcMain.handle(
+            "database:test-site-connection",
+            async (_, siteName: string) => {
+                try {
+                    // Get site configuration
+                    const sitesPath = path.join(
+                        process.env.HOME || process.env.USERPROFILE || "",
+                        "PressBox",
+                        "sites"
+                    );
+                    const sitePath = path.join(sitesPath, siteName);
+                    const configPath = path.join(
+                        sitePath,
+                        "pressbox-config.json"
+                    );
+
+                    if (!fs.existsSync(configPath)) {
+                        return {
+                            success: false,
+                            error: "Site configuration not found",
+                        };
+                    }
+
+                    const config = JSON.parse(
+                        fs.readFileSync(configPath, "utf-8")
+                    );
+                    const wpConfigPath = path.join(sitePath, "wp-config.php");
+
+                    if (!fs.existsSync(wpConfigPath)) {
+                        return {
+                            success: false,
+                            error: "wp-config.php not found",
+                        };
+                    }
+
+                    // Check database type from wp-config.php
+                    const wpConfig = fs.readFileSync(wpConfigPath, "utf-8");
+                    const isSQLite =
+                        wpConfig.includes("DB_ENGINE") &&
+                        wpConfig.includes("'sqlite'");
+
+                    if (isSQLite) {
+                        // Check SQLite database file
+                        const dbDir = path.join(
+                            sitePath,
+                            "wp-content",
+                            "database"
+                        );
+                        const dbFile = path.join(dbDir, ".ht.sqlite");
+
+                        if (!fs.existsSync(dbDir)) {
+                            return {
+                                success: false,
+                                error: "SQLite database directory not found",
+                            };
+                        }
+
+                        if (!fs.existsSync(dbFile)) {
+                            return {
+                                success: false,
+                                error: "SQLite database file not found",
+                            };
+                        }
+
+                        // Try to access SQLite database
+                        try {
+                            let sqlite3: any = null;
+                            let sqlite: any = null;
+
+                            try {
+                                sqlite3 = require("sqlite3");
+                                sqlite = require("sqlite");
+                            } catch (importError) {
+                                // SQLite packages not available
+                            }
+
+                            if (!sqlite3 || !sqlite) {
+                                return {
+                                    success: false,
+                                    error: "SQLite dependencies not available for diagnostics",
+                                };
+                            }
+
+                            const db = await sqlite.open({
+                                filename: dbFile,
+                                driver: sqlite3.Database,
+                            });
+                            await db.close();
+                            return {
+                                success: true,
+                                type: "sqlite",
+                                message: "SQLite database accessible",
+                            };
+                        } catch (sqliteError: any) {
+                            return {
+                                success: false,
+                                error: `SQLite database error: ${sqliteError.message}`,
+                            };
+                        }
+                    } else {
+                        // Test MySQL/MariaDB connection
+                        const dbType = config.database || "mysql";
+                        const port = dbType === "mysql" ? 3306 : 3307;
+
+                        try {
+                            const mysql = await import("mysql2/promise");
+                            const connection = await mysql.createConnection({
+                                host: "localhost",
+                                port: port,
+                                user: "root",
+                                password: "",
+                                database: config.dbName || `${siteName}_db`,
+                                connectTimeout: 5000,
+                            });
+                            await connection.end();
+                            return {
+                                success: true,
+                                type: dbType,
+                                message: `${dbType.toUpperCase()} connection successful`,
+                            };
+                        } catch (mysqlError: any) {
+                            return {
+                                success: false,
+                                error: `${dbType.toUpperCase()} connection failed: ${mysqlError.message}`,
+                            };
+                        }
+                    }
+                } catch (error: any) {
+                    return {
+                        success: false,
+                        error: `Diagnostic error: ${error.message}`,
+                    };
+                }
+            }
+        );
+
         // Get list of tables
         ipcMain.handle("database:get-tables", async (_, siteName: string) => {
             try {

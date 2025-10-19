@@ -69,6 +69,10 @@ export interface CreateSiteRequest {
     // Database options
     database?: "mysql" | "mariadb" | "sqlite";
     databaseVersion?: string;
+    dbName?: string;
+    dbUser?: string;
+    dbPassword?: string;
+    dbRootPassword?: string;
     // Web server options
     webServer?: "nginx" | "apache";
     webServerVersion?: string;

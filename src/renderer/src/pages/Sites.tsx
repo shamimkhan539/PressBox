@@ -49,13 +49,16 @@ export function Sites() {
   const [sites, setSites] = useState<WordPressSite[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [databaseServers, setDatabaseServers] = useState<any[]>([]);
 
   useEffect(() => {
     loadSites(true); // Initial load with loading state
+    loadDatabaseServers(); // Load database server statuses
 
     // Poll for site status updates every 5 seconds
     const interval = setInterval(() => {
       loadSites(false); // Polling updates without loading state
+      loadDatabaseServers(); // Also refresh database server statuses
     }, 5000);
 
     return () => clearInterval(interval);
@@ -93,6 +96,15 @@ export function Sites() {
       if (showLoading) {
         setLoading(false);
       }
+    }
+  };
+
+  const loadDatabaseServers = async () => {
+    try {
+      const servers = await window.electronAPI.databaseServers.getStatuses();
+      setDatabaseServers(servers);
+    } catch (err) {
+      console.error('Failed to load database servers:', err);
     }
   };
 
@@ -158,7 +170,17 @@ export function Sites() {
           if (!confirm('Are you sure you want to delete this site? This action cannot be undone.')) {
             return;
           }
-          result = await window.electronAPI.sites.delete(siteId);
+          try {
+            await window.electronAPI.sites.delete(siteId);
+            result = { success: true };
+            setSuccessMessage('Site deleted successfully!');
+            // Auto-clear success message after 5 seconds
+            setTimeout(() => setSuccessMessage(null), 5000);
+          } catch (deleteError: any) {
+            console.error('Delete error:', deleteError);
+            setError(deleteError?.message || 'Failed to delete site. Please check console for details.');
+            return;
+          }
           break;
         case 'restart':
           await window.electronAPI.sites.stop(siteId);
@@ -180,8 +202,9 @@ export function Sites() {
       } else {
         setError((result as any)?.error || `Failed to ${action} site`);
       }
-    } catch (error) {
-      setError(`Failed to ${action} site. Please try again.`);
+    } catch (error: any) {
+      console.error(`Failed to ${action} site:`, error);
+      setError(error?.message || `Failed to ${action} site. Please try again.`);
     }
   };
 
@@ -404,6 +427,39 @@ export function Sites() {
         </div>
       </div>
 
+      {/* Database Server Status Warning */}
+      {sites.some(site => site.database !== 'sqlite') && 
+       databaseServers.some(s => (s.type === 'mysql' || s.type === 'mariadb') && !s.isRunning) && (
+        <div className="mb-6 bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400 p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                Database Server Not Running
+              </h3>
+              <div className="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
+                <p>
+                  Some of your sites use MySQL/MariaDB, but the database server is not running. 
+                  Sites will fall back to SQLite until you start the database server.
+                </p>
+                <p className="mt-2">
+                  <button 
+                    onClick={() => window.location.href = '#/tools'}
+                    className="font-medium underline hover:text-yellow-600 dark:hover:text-yellow-200"
+                  >
+                    Go to Tools → Database Management to start the server
+                  </button>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {sites.length === 0 ? (
         /* Empty State */
         <div className="card p-12 text-center">
@@ -492,6 +548,41 @@ export function Sites() {
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600 dark:text-gray-400">Port</span>
                     <span className="text-gray-900 dark:text-white">{site.port}</span>
+                  </div>
+                )}
+                {site.database && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600 dark:text-gray-400">Database</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-gray-900 dark:text-white font-medium capitalize">{site.database}</span>
+                      {site.database !== 'sqlite' && (
+                        <>
+                          {databaseServers.some(s => s.type === site.database && s.isRunning) ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                              <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                              Running
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                              <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                              </svg>
+                              Stopped
+                            </span>
+                          )}
+                        </>
+                      )}
+                      {site.database === 'sqlite' && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                          <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                          </svg>
+                          File-based
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

@@ -34,6 +34,31 @@ export interface ElectronAPI {
         getContainers: () => Promise<DockerContainer[]>;
     };
 
+    // Database Testing
+    testDatabaseConnection: (
+        type: string,
+        version: string,
+        port: number
+    ) => Promise<boolean>;
+
+    // Database Server Management
+    databaseServers: {
+        getStatuses: () => Promise<any[]>;
+        start: (server: any) => Promise<{ success: boolean; error?: string }>;
+        stop: (server: any) => Promise<{ success: boolean; error?: string }>;
+        initialize: (
+            server: any
+        ) => Promise<{ success: boolean; error?: string }>;
+        testSiteConnection: (
+            siteName: string
+        ) => Promise<{
+            success: boolean;
+            type?: string;
+            message?: string;
+            error?: string;
+        }>;
+    };
+
     // Plugin System
     plugins: {
         list: () => Promise<PluginInfo[]>;
@@ -283,6 +308,11 @@ export interface ElectronAPI {
 
     // Database Browser
     database: {
+        testDatabaseConnection: (
+            type: string,
+            version: string,
+            port: number
+        ) => Promise<boolean>;
         getTables: (siteName: string) => Promise<
             Array<{
                 name: string;
@@ -530,6 +560,23 @@ const electronAPI: ElectronAPI = {
             ipcRenderer.invoke("plugins:update-settings", pluginId, settings),
     },
 
+    // Database Testing
+    testDatabaseConnection: (type: string, version: string, port: number) =>
+        ipcRenderer.invoke("database:test-connection", type, version, port),
+
+    // Database Server Management
+    databaseServers: {
+        getStatuses: () => ipcRenderer.invoke("database-server:get-statuses"),
+        start: (server: any) =>
+            ipcRenderer.invoke("database-server:start", server),
+        stop: (server: any) =>
+            ipcRenderer.invoke("database-server:stop", server),
+        initialize: (server: any) =>
+            ipcRenderer.invoke("database-server:initialize", server),
+        testSiteConnection: (siteName: string) =>
+            ipcRenderer.invoke("database:test-site-connection", siteName),
+    },
+
     // Blueprint Management
     blueprints: {
         getAll: () => ipcRenderer.invoke("blueprints:get-all"),
@@ -678,6 +725,8 @@ const electronAPI: ElectronAPI = {
 
     // Database Browser
     database: {
+        testDatabaseConnection: (type: string, version: string, port: number) =>
+            ipcRenderer.invoke("database:test-connection", type, version, port),
         getTables: (siteName: string) =>
             ipcRenderer.invoke("database:get-tables", siteName),
         getSchema: (siteName: string, tableName: string) =>
