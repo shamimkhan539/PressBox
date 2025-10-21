@@ -49,14 +49,47 @@ export interface ElectronAPI {
         initialize: (
             server: any
         ) => Promise<{ success: boolean; error?: string }>;
-        testSiteConnection: (
-            siteName: string
-        ) => Promise<{
+        testSiteConnection: (siteName: string) => Promise<{
             success: boolean;
             type?: string;
             message?: string;
             error?: string;
         }>;
+    };
+
+    // Portable Installation Management
+    portable: {
+        getAvailableVersions: () => Promise<any[]>;
+        installVersion: (
+            type: "mysql" | "mariadb",
+            version: string
+        ) => Promise<{ success: boolean; error?: string }>;
+        uninstallVersion: (
+            type: "mysql" | "mariadb",
+            version: string
+        ) => Promise<boolean>;
+        startDatabase: (
+            type: "mysql" | "mariadb",
+            version: string,
+            port?: number
+        ) => Promise<{ success: boolean; error?: string; pid?: number }>;
+        stopDatabase: (
+            type: "mysql" | "mariadb",
+            version: string
+        ) => Promise<{ success: boolean; error?: string }>;
+        getRunningServers: () => Promise<any[]>;
+        isVersionInstalled: (
+            type: "mysql" | "mariadb",
+            version: string
+        ) => Promise<boolean>;
+        onInstallProgress: (
+            callback: (progress: {
+                percent: number;
+                downloaded: number;
+                total: number;
+                status: string;
+            }) => void
+        ) => () => void;
     };
 
     // Plugin System
@@ -575,6 +608,36 @@ const electronAPI: ElectronAPI = {
             ipcRenderer.invoke("database-server:initialize", server),
         testSiteConnection: (siteName: string) =>
             ipcRenderer.invoke("database:test-site-connection", siteName),
+    },
+
+    // Portable Installation Management
+    portable: {
+        getAvailableVersions: () =>
+            ipcRenderer.invoke("portable:get-available-versions"),
+        installVersion: (type, version) =>
+            ipcRenderer.invoke("portable:install-version", type, version),
+        uninstallVersion: (type, version) =>
+            ipcRenderer.invoke("portable:uninstall-version", type, version),
+        startDatabase: (type, version, port) =>
+            ipcRenderer.invoke("portable:start-database", type, version, port),
+        stopDatabase: (type, version) =>
+            ipcRenderer.invoke("portable:stop-database", type, version),
+        getRunningServers: () =>
+            ipcRenderer.invoke("portable:get-running-servers"),
+        isVersionInstalled: (type, version) =>
+            ipcRenderer.invoke("portable:is-version-installed", type, version),
+        onInstallProgress: (callback) => {
+            const subscription = (_event: any, progress: any) =>
+                callback(progress);
+            ipcRenderer.on("portable:install-progress", subscription);
+            // Return cleanup function
+            return () => {
+                ipcRenderer.removeListener(
+                    "portable:install-progress",
+                    subscription
+                );
+            };
+        },
     },
 
     // Blueprint Management

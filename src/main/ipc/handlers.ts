@@ -1400,6 +1400,133 @@ export class IPCHandlers {
             }
         });
 
+        // Portable installation handlers
+        ipcMain.handle("portable:get-available-versions", async () => {
+            try {
+                const { PortableDatabaseManager } = await import(
+                    "../services/portableDatabaseManager"
+                );
+                const manager = PortableDatabaseManager.getInstance();
+                await manager.initialize();
+                return await manager.getAvailableVersions();
+            } catch (error) {
+                console.error("Failed to get available versions:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle(
+            "portable:install-version",
+            async (event, type: "mysql" | "mariadb", version: string) => {
+                try {
+                    const { PortableDatabaseManager } = await import(
+                        "../services/portableDatabaseManager"
+                    );
+                    const manager = PortableDatabaseManager.getInstance();
+                    return await manager.installVersion(
+                        type,
+                        version,
+                        event.sender
+                    );
+                } catch (error) {
+                    console.error(
+                        `Failed to install ${type} ${version}:`,
+                        error
+                    );
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "portable:uninstall-version",
+            async (_, type: "mysql" | "mariadb", version: string) => {
+                try {
+                    const { PortableDatabaseManager } = await import(
+                        "../services/portableDatabaseManager"
+                    );
+                    const manager = PortableDatabaseManager.getInstance();
+                    return await manager.uninstallVersion(type, version);
+                } catch (error) {
+                    console.error(
+                        `Failed to uninstall ${type} ${version}:`,
+                        error
+                    );
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "portable:start-database",
+            async (
+                _,
+                type: "mysql" | "mariadb",
+                version: string,
+                port: number = 3306
+            ) => {
+                try {
+                    const { PortableDatabaseManager } = await import(
+                        "../services/portableDatabaseManager"
+                    );
+                    const manager = PortableDatabaseManager.getInstance();
+                    return await manager.startServer(type, version, port);
+                } catch (error) {
+                    console.error(`Failed to start ${type} ${version}:`, error);
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle(
+            "portable:stop-database",
+            async (_, type: "mysql" | "mariadb", version: string) => {
+                try {
+                    const { PortableDatabaseManager } = await import(
+                        "../services/portableDatabaseManager"
+                    );
+                    const manager = PortableDatabaseManager.getInstance();
+                    return await manager.stopServer(type, version);
+                } catch (error) {
+                    console.error(`Failed to stop ${type} ${version}:`, error);
+                    throw error;
+                }
+            }
+        );
+
+        ipcMain.handle("portable:get-running-servers", async () => {
+            try {
+                const { PortableDatabaseManager } = await import(
+                    "../services/portableDatabaseManager"
+                );
+                const manager = PortableDatabaseManager.getInstance();
+                return manager.getRunningServers();
+            } catch (error) {
+                console.error("Failed to get running servers:", error);
+                throw error;
+            }
+        });
+
+        ipcMain.handle(
+            "portable:is-version-installed",
+            async (_, type: "mysql" | "mariadb", version: string) => {
+                try {
+                    const { PortableDatabaseManager } = await import(
+                        "../services/portableDatabaseManager"
+                    );
+                    const manager = PortableDatabaseManager.getInstance();
+                    await manager.initialize();
+                    return await manager.isVersionInstalled(type, version);
+                } catch (error) {
+                    console.error(
+                        `Failed to check if ${type} ${version} is installed:`,
+                        error
+                    );
+                    return false;
+                }
+            }
+        );
+
         // Test database connection for diagnostics
         ipcMain.handle(
             "database:test-site-connection",

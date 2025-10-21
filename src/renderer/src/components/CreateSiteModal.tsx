@@ -104,53 +104,51 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
   const [showBlueprintSelector, setShowBlueprintSelector] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [availableDbVersions, setAvailableDbVersions] = useState<Set<string>>(new Set());
+  const [installedPhpVersions, setInstalledPhpVersions] = useState<Set<string>>(new Set());
+  const [downloadProgress, setDownloadProgress] = useState<{percent: number; status: string} | null>(null);
 
-  // Detect available database versions
+  // Detect installed portable database and PHP versions
   useEffect(() => {
-    const detectAvailableVersions = async () => {
-      const available = new Set<string>();
+    const detectInstalledVersions = async () => {
+      const installedDb = new Set<string>();
+      const installedPhp = new Set<string>();
       
-      // Test MySQL versions
-      for (const version of MYSQL_VERSIONS) {
-        try {
-          // Try to connect to MySQL on common ports
-          const ports = [3306, 3307, 3308]; // Common MySQL ports
-          for (const port of ports) {
-            try {
-              await window.electronAPI?.testDatabaseConnection?.('mysql', version, port);
-              available.add(`mysql-${version}`);
-              break; // If one port works, consider version available
-            } catch {
-              // Continue to next port
-            }
+      try {
+        console.log('🔍 Detecting installed database versions...');
+        
+        // Check portable MySQL versions
+        for (const version of MYSQL_VERSIONS) {
+          const installed = await window.electronAPI?.portable?.isVersionInstalled?.('mysql', version);
+          console.log(`  MySQL ${version}: ${installed ? '✅ INSTALLED' : '❌ NOT INSTALLED'}`);
+          if (installed) {
+            installedDb.add(`mysql-${version}`);
           }
-        } catch {
-          // Version not available
         }
+        
+        // Check portable MariaDB versions
+        for (const version of MARIADB_VERSIONS) {
+          const installed = await window.electronAPI?.portable?.isVersionInstalled?.('mariadb', version);
+          console.log(`  MariaDB ${version}: ${installed ? '✅ INSTALLED' : '❌ NOT INSTALLED'}`);
+          if (installed) {
+            installedDb.add(`mariadb-${version}`);
+          }
+        }
+
+        console.log('📊 Installed databases:', Array.from(installedDb));
+
+        // TODO: Check portable PHP versions when PHP manager is updated
+        // For now, assume PHP is available (backward compatibility)
+        PHP_VERSIONS.forEach(v => installedPhp.add(v));
+        
+      } catch (error) {
+        console.error('❌ Failed to detect installed versions:', error);
       }
       
-      // Test MariaDB versions
-      for (const version of MARIADB_VERSIONS) {
-        try {
-          const ports = [3306, 3307, 3308];
-          for (const port of ports) {
-            try {
-              await window.electronAPI?.testDatabaseConnection?.('mariadb', version, port);
-              available.add(`mariadb-${version}`);
-              break;
-            } catch {
-              // Continue to next port
-            }
-          }
-        } catch {
-          // Version not available
-        }
-      }
-      
-      setAvailableDbVersions(available);
+      setAvailableDbVersions(installedDb);
+      setInstalledPhpVersions(installedPhp);
     };
     
-    detectAvailableVersions();
+    detectInstalledVersions();
   }, []);
 
   // Auto-generate secure password on mount
@@ -209,34 +207,45 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
     }
   }, [formData.webServer]);
 
-  const handleInstallDatabase = (type: 'mysql' | 'mariadb', version: string) => {
-    const downloadUrls: Record<string, Record<string, string>> = {
-      mysql: {
-        '8.0': 'https://dev.mysql.com/downloads/mysql/8.0.html',
-        '8.1': 'https://dev.mysql.com/downloads/mysql/8.1.html',
-        '8.2': 'https://dev.mysql.com/downloads/mysql/8.2.html',
-        '5.7': 'https://dev.mysql.com/downloads/mysql/5.7.html',
-      },
-      mariadb: {
-        '11.2': 'https://mariadb.org/download/',
-        '11.1': 'https://mariadb.org/download/',
-        '11.0': 'https://mariadb.org/download/',
-        '10.11': 'https://mariadb.org/download/',
-        '10.6': 'https://mariadb.org/download/',
-        '10.5': 'https://mariadb.org/download/',
-      }
-    };
+  const handleInstallDatabase = async (type: 'mysql' | 'mariadb', version: string) => {
+    try {
+      setCreating(true);
+      setDownloadProgress({ percent: 0, status: 'Initializing download...' });
+      
+      // Set up progress listener
+      const cleanup = window.electronAPI?.portable?.onInstallProgress?.((progress: any) => {
+        setDownloadProgress({
+          percent: progress.percent || 0,
+          status: progress.status || 'Downloading...'
+        });
+      });
 
-    const url = downloadUrls[type]?.[version];
-    if (url) {
-      (window as any).electronAPI?.shell?.openExternal(url);
-    } else {
-      // Fallback to general download page
-      const generalUrls: Record<string, string> = {
-        mysql: 'https://dev.mysql.com/downloads/mysql/',
-        mariadb: 'https://mariadb.org/download/'
-      };
-      (window as any).electronAPI?.shell?.openExternal(generalUrls[type]);
+      const result = await window.electronAPI?.portable?.installVersion?.(type, version);
+
+      // Clean up progress listener
+      cleanup?.();
+
+      if (result?.success) {
+        setDownloadProgress({ percent: 100, status: 'Installation complete!' });
+        
+        // Refresh installed versions
+        const installed = await window.electronAPI?.portable?.isVersionInstalled?.(type, version);
+        if (installed) {
+          setAvailableDbVersions(prev => new Set([...prev, `${type}-${version}`]));
+        }
+        
+        setTimeout(() => {
+          setCreating(false);
+          setDownloadProgress(null);
+        }, 2000);
+      } else {
+        throw new Error(result?.error || 'Installation failed');
+      }
+    } catch (error: any) {
+      console.error(`Failed to install ${type} ${version}:`, error);
+      setError(`Failed to install ${type} ${version}: ${error.message}`);
+      setCreating(false);
+      setDownloadProgress(null);
     }
   };
 
@@ -703,21 +712,21 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
                   {formData.database !== 'sqlite' && (
                     <div>
                       <label className="form-label">Database Version</label>
-                      <div className="relative">
+                      <div className="flex gap-2">
                         <select
                           value={formData.databaseVersion}
                           onChange={(e) => handleInputChange('databaseVersion', e.target.value)}
-                          className="form-input pr-8"
+                          className="form-input flex-1"
                           disabled={creating}
                         >
                           {formData.database === 'mysql' && MYSQL_VERSIONS.map(v => (
                             <option key={v} value={v}>
-                              MySQL {v} {availableDbVersions.has(`mysql-${v}`) ? '✓' : '📥'}
+                              {availableDbVersions.has(`mysql-${v}`) ? '✓' : '📥'} MySQL {v}
                             </option>
                           ))}
                           {formData.database === 'mariadb' && MARIADB_VERSIONS.map(v => (
                             <option key={v} value={v}>
-                              MariaDB {v} {availableDbVersions.has(`mariadb-${v}`) ? '✓' : '📥'}
+                              {availableDbVersions.has(`mariadb-${v}`) ? '✓' : '📥'} MariaDB {v}
                             </option>
                           ))}
                         </select>
@@ -725,18 +734,31 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
                           <button
                             type="button"
                             onClick={() => handleInstallDatabase(formData.database as 'mysql' | 'mariadb', formData.databaseVersion)}
-                            className="absolute right-2 top-1/2 transform -translate-y-1/2 text-blue-600 hover:text-blue-700"
+                            disabled={creating}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
                             title={`Install ${formData.database} ${formData.databaseVersion}`}
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                             </svg>
+                            Install
                           </button>
                         )}
                       </div>
                       {!availableDbVersions.has(`${formData.database}-${formData.databaseVersion}`) && (
-                        <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                          Click download icon to install {formData.database} {formData.databaseVersion}
+                        <p className="text-xs text-orange-600 dark:text-orange-400 mt-1 flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          This version is not installed. Click "Install" to download (~{formData.database === 'mysql' ? '350' : '180'} MB)
+                        </p>
+                      )}
+                      {availableDbVersions.has(`${formData.database}-${formData.databaseVersion}`) && (
+                        <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Installed and ready to use
                         </p>
                       )}
                     </div>
@@ -803,9 +825,14 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
                       disabled={creating}
                     >
                       {PHP_VERSIONS.map(v => (
-                        <option key={v} value={v}>PHP {v}</option>
+                        <option key={v} value={v}>
+                          {installedPhpVersions.has(v) ? '✓' : '📥'} PHP {v}
+                        </option>
                       ))}
                     </select>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      ✓ = Installed, 📥 = Will auto-download if needed
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1138,6 +1165,49 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
           onClose={() => setShowBlueprintSelector(false)}
           onSelectBlueprint={handleBlueprintSelect}
         />
+      )}
+
+      {/* Download Progress Modal */}
+      {downloadProgress && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60]">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </div>
+              
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Installing Database
+              </h3>
+              
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                {downloadProgress.status}
+              </p>
+
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 mb-2 overflow-hidden">
+                <div 
+                  className="bg-blue-600 h-full transition-all duration-300 ease-out rounded-full"
+                  style={{ width: `${downloadProgress.percent}%` }}
+                />
+              </div>
+              
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {downloadProgress.percent}%
+              </p>
+
+              {downloadProgress.percent === 100 && (
+                <div className="mt-4 flex items-center justify-center text-green-600 dark:text-green-400">
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm font-medium">Complete!</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

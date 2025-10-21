@@ -49,6 +49,10 @@ export class DatabaseServerManager {
             "C:\\xampp\\mysql",
             "C:\\wamp\\bin\\mysql",
             "C:\\wamp64\\bin\\mysql",
+            "C:\\laragon\\bin\\mysql",
+            "C:\\laragon\\bin\\mariadb",
+            "D:\\laragon\\bin\\mysql",
+            "D:\\laragon\\bin\\mariadb",
         ];
     }
 
@@ -59,10 +63,93 @@ export class DatabaseServerManager {
         const servers: DatabaseServerConfig[] = [];
         const installPaths = this.getCommonInstallPaths();
 
+        // ALSO scan Program Files directly for "MariaDB X.X" or "MySQL X.X" installations
+        const programFiles = process.env.PROGRAMFILES || "C:\\Program Files";
+        const programFilesX86 =
+            process.env["PROGRAMFILES(X86)"] || "C:\\Program Files (x86)";
+
+        // Add direct Program Files scans for installations like "MariaDB 10.4", "MySQL 8.0", etc.
+        const directScanPaths = [programFiles, programFilesX86];
+
+        for (const pfPath of directScanPaths) {
+            if (!fs.existsSync(pfPath)) continue;
+
+            try {
+                const entries = fs.readdirSync(pfPath);
+                for (const entry of entries) {
+                    // Check if folder name starts with MySQL or MariaDB
+                    if (
+                        entry.toLowerCase().startsWith("mysql") ||
+                        entry.toLowerCase().startsWith("mariadb")
+                    ) {
+                        const fullPath = path.join(pfPath, entry);
+                        if (fs.statSync(fullPath).isDirectory()) {
+                            // This might be a direct installation like "MariaDB 10.4"
+                            const binPath = path.join(fullPath, "bin");
+                            const mysqldPath = path.join(binPath, "mysqld.exe");
+                            const mariadbdPath = path.join(
+                                binPath,
+                                "mariadbd.exe"
+                            );
+
+                            if (
+                                fs.existsSync(mysqldPath) ||
+                                fs.existsSync(mariadbdPath)
+                            ) {
+                                // Add this to our scan paths
+                                installPaths.push(fullPath);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                logger.warn(
+                    `Error scanning ${pfPath} for direct installations:`,
+                    error
+                );
+            }
+        }
+
         for (const basePath of installPaths) {
             if (!fs.existsSync(basePath)) continue;
 
             try {
+                // Check if basePath itself is a MySQL/MariaDB installation (e.g., "C:\Program Files\MariaDB 10.4")
+                const binPath = path.join(basePath, "bin");
+                const mysqldPath = path.join(binPath, "mysqld.exe");
+                const mariadbdPath = path.join(binPath, "mariadbd.exe");
+
+                let serverType: "mysql" | "mariadb" | null = null;
+                let executablePath: string | null = null;
+
+                if (fs.existsSync(mysqldPath)) {
+                    serverType = "mysql";
+                    executablePath = mysqldPath;
+                } else if (fs.existsSync(mariadbdPath)) {
+                    serverType = "mariadb";
+                    executablePath = mariadbdPath;
+                }
+
+                if (serverType && executablePath) {
+                    // basePath itself is the installation directory
+                    const folderName = path.basename(basePath);
+                    const versionMatch =
+                        folderName.match(/(\d+\.\d+(?:\.\d+)?)/);
+                    const version = versionMatch ? versionMatch[1] : folderName;
+
+                    servers.push({
+                        type: serverType,
+                        version: version,
+                        port: serverType === "mysql" ? 3306 : 3307,
+                        installPath: basePath,
+                        dataPath: path.join(basePath, "data"),
+                        configPath: path.join(basePath, "my.ini"),
+                    });
+
+                    continue; // Don't scan subdirectories if basePath itself is an installation
+                }
+
+                // Otherwise, scan subdirectories for version folders (e.g., "C:\xampp\mysql\mysql-8.0.30-winx64")
                 const entries = fs.readdirSync(basePath);
 
                 for (const entry of entries) {

@@ -38,6 +38,7 @@ import { DebugLogger } from "./debugLogger";
 import { NonAdminMode } from "./nonAdminMode";
 import { FileLogger } from "./fileLogger";
 import { DatabaseServerManager } from "./databaseServerManager";
+import { PortableDatabaseManager } from "./portableDatabaseManager";
 
 // Internal site type with process tracking
 interface SimpleWordPressSite {
@@ -146,6 +147,7 @@ export class SimpleWordPressManager {
     private usedPorts: Set<number> = new Set();
     private logger: DebugLogger;
     private databaseServerManager: DatabaseServerManager;
+    private portableDatabaseManager: PortableDatabaseManager;
 
     constructor() {
         this.pressBoxPath = path.join(os.homedir(), "PressBox");
@@ -153,6 +155,7 @@ export class SimpleWordPressManager {
         this.tempPath = path.join(this.pressBoxPath, "temp");
         this.logger = new DebugLogger();
         this.databaseServerManager = new DatabaseServerManager();
+        this.portableDatabaseManager = PortableDatabaseManager.getInstance();
         this.logger.clearLog();
         this.logger.log("SimpleWordPressManager constructor called");
 
@@ -636,40 +639,57 @@ if ( ! isset( $wp_did_header ) ) {
         try {
             console.log(`   🔍 Checking database server status...`);
 
-            // Check if database server is running
-            const servers =
-                await this.databaseServerManager.getAllServerStatuses();
-            const dbType = config.database || "mysql";
+            const dbType = (config.database || "mysql") as "mysql" | "mariadb";
+            const dbVersion = config.databaseVersion || "8.0";
 
-            // MySQL and MariaDB are compatible, so check for both
-            const compatibleTypes =
-                dbType === "mysql" ? ["mysql", "mariadb"] : [dbType];
-            const runningServer = servers.find(
-                (s: any) => compatibleTypes.includes(s.type) && s.isRunning
+            console.log(`   📊 Requested: ${dbType} ${dbVersion}`);
+
+            // STEP 1: Check if portable version is installed
+            console.log(
+                `   🔍 Checking if portable ${dbType} ${dbVersion} is installed...`
+            );
+            const isPortableInstalled =
+                await this.portableDatabaseManager.isVersionInstalled(
+                    dbType,
+                    dbVersion
+                );
+
+            if (!isPortableInstalled) {
+                console.log(
+                    `   ❌ Portable ${dbType} ${dbVersion} is not installed`
+                );
+                console.log(
+                    `   💡 Please install ${dbType} ${dbVersion} from the site creation modal`
+                );
+                return false;
+            }
+
+            console.log(`   ✅ Portable ${dbType} ${dbVersion} is installed`);
+
+            // STEP 2: Check if it's already running
+            const runningServers =
+                await this.portableDatabaseManager.getRunningServers();
+            const isRunning = runningServers.some(
+                (s) => s.type === dbType && s.version === dbVersion
             );
 
-            if (!runningServer) {
-                console.log(`   ⚠️ ${dbType} server is not running`);
-
-                // Try to find and start a server (check for compatible types)
-                const availableServers = servers.filter((s: any) =>
-                    compatibleTypes.includes(s.type)
-                );
-
-                if (availableServers.length === 0) {
-                    console.log(
-                        `   ❌ No ${compatibleTypes.join(" or ")} server installations found`
-                    );
-                    return false;
-                }
-
-                const serverToStart = availableServers[0];
+            if (isRunning) {
                 console.log(
-                    `   🚀 Attempting to start ${serverToStart.type} ${serverToStart.version}...`
+                    `   ✅ Portable ${dbType} ${dbVersion} is already running`
                 );
-
+                console.log(
+                    `   ℹ️  Using existing MySQL instance (no wait needed)`
+                );
+            } else {
+                // STEP 3: Start the portable server
+                console.log(
+                    `   🚀 Starting portable ${dbType} ${dbVersion}...`
+                );
                 const startResult =
-                    await this.databaseServerManager.startServer(serverToStart);
+                    await this.portableDatabaseManager.startServer(
+                        dbType,
+                        dbVersion
+                    );
 
                 if (!startResult.success) {
                     console.log(
@@ -678,49 +698,81 @@ if ( ! isset( $wp_did_header ) ) {
                     return false;
                 }
 
-                console.log(`   ✅ Database server started successfully`);
-
-                // Wait for server to be fully ready
-                await new Promise((resolve) => setTimeout(resolve, 3000));
-            } else {
                 console.log(
-                    `   ✅ ${runningServer.type} ${runningServer.version} is running`
+                    `   ✅ Portable database server started/connected successfully`
                 );
+
+                // Wait for the newly started server to be fully ready
+                console.log(`   ⏳ Waiting for server to be fully ready...`);
+                console.log(
+                    `   📊 MySQL initialization can take 5-10 seconds...`
+                );
+                await new Promise((resolve) => setTimeout(resolve, 8000));
             }
 
-            // Try to connect to MySQL to verify it's actually accessible
+            // STEP 4: Test MySQL connection with retry logic
             console.log(`   🔌 Testing MySQL connection...`);
 
             const mysql = await import("mysql2/promise");
             let connection;
+            let retries = 5;
+            let lastError;
 
-            try {
-                connection = await mysql.createConnection({
-                    host: "localhost",
-                    port: 3306,
-                    user: "root",
-                    password: config.dbRootPassword || "",
-                    connectTimeout: 5000,
-                });
+            while (retries > 0) {
+                try {
+                    console.log(`   🔄 Connection attempt ${6 - retries}/5...`);
+                    connection = await mysql.createConnection({
+                        host: "localhost",
+                        port: 3306,
+                        user: "root",
+                        password: config.dbRootPassword || "",
+                        connectTimeout: 5000,
+                    });
 
-                console.log(`   ✅ MySQL connection successful`);
-                await connection.end();
-                return true;
-            } catch (connError: any) {
-                console.log(
-                    `   ❌ MySQL connection failed: ${connError.code || connError.message}`
-                );
+                    console.log(`   ✅ MySQL connection successful`);
 
-                if (connection) {
-                    try {
-                        await connection.end();
-                    } catch {}
+                    // STEP 5: Create database if it doesn't exist
+                    const dbName = config.dbName || config.siteName;
+                    console.log(`   📊 Creating database: ${dbName}`);
+
+                    await connection.query(
+                        `CREATE DATABASE IF NOT EXISTS \`${dbName}\``
+                    );
+                    console.log(`   ✅ Database created or already exists`);
+
+                    await connection.end();
+                    return true;
+                } catch (connError: any) {
+                    lastError = connError;
+                    retries--;
+
+                    if (retries > 0) {
+                        console.log(
+                            `   ⚠️ Connection failed: ${connError.code || connError.message}`
+                        );
+                        console.log(
+                            `   🔄 Retrying in 2 seconds... (${retries} attempts left)`
+                        );
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, 2000)
+                        );
+                    } else {
+                        console.log(
+                            `   ❌ MySQL connection failed after all retries: ${lastError.code || lastError.message}`
+                        );
+                        if (connection) {
+                            try {
+                                await connection.end();
+                            } catch {}
+                        }
+                        return false;
+                    }
                 }
-
-                return false;
             }
-        } catch (error) {
-            console.warn(`   ⚠️ Error verifying MySQL:`, error);
+
+            return false;
+        } catch (error: any) {
+            console.error(`   ❌ Error verifying MySQL availability:`, error);
             return false;
         }
     }
@@ -781,6 +833,11 @@ if ( ! isset( $wp_did_header ) ) {
                 `📊 Configuring WordPress with ${databaseType.toUpperCase()}`
             );
 
+            // For portable MySQL, use root user with blank password
+            // This matches how MySQL is initialized with --initialize-insecure
+            const dbUser = "root";
+            const dbPassword = config.dbRootPassword || "";
+
             wpConfig = `<?php
 /**
  * The base configuration for WordPress with ${databaseType.toUpperCase()}
@@ -796,8 +853,8 @@ if ( ! isset( $wp_did_header ) ) {
 
 // ** MySQL/MariaDB Database Configuration ** //
 define( 'DB_NAME', '${config.dbName || config.siteName}' );
-define( 'DB_USER', '${config.dbUser || "wordpress"}' );
-define( 'DB_PASSWORD', '${config.dbPassword || "wordpress"}' );
+define( 'DB_USER', '${dbUser}' );
+define( 'DB_PASSWORD', '${dbPassword}' );
 define( 'DB_HOST', 'localhost' );
 define( 'DB_CHARSET', 'utf8mb4' );
 define( 'DB_COLLATE', '' );
@@ -1292,15 +1349,16 @@ class wpdb extends wpdb_base {
             const dbType = siteConfig.config?.database || "sqlite";
             if (dbType === "mysql" || dbType === "mariadb") {
                 console.log(
-                    `📊 Setting up ${dbType.toUpperCase()} database...`
+                    `📊 Verifying ${dbType.toUpperCase()} database availability...`
                 );
-                try {
-                    await this.setupMySQLDatabase(site, siteConfig.config);
-                    // Update site configuration with actual database type used
-                    site.database = dbType;
-                    site.databaseVersion = siteConfig.config.databaseVersion;
-                } catch (mysqlError) {
-                    console.warn(`⚠️ MySQL setup failed:`, mysqlError);
+
+                // Use the same verification method as site creation
+                const isAvailable = await this.verifyMySQLAvailability(
+                    siteConfig.config
+                );
+
+                if (!isAvailable) {
+                    console.warn(`⚠️ MySQL/MariaDB not available`);
                     console.log(`🔄 Falling back to SQLite database...`);
 
                     // Fallback to SQLite
@@ -1321,6 +1379,11 @@ class wpdb extends wpdb_base {
                     );
 
                     console.log(`✅ Successfully fell back to SQLite`);
+                } else {
+                    console.log(`✅ ${dbType.toUpperCase()} is ready`);
+                    // Update site configuration with actual database type used
+                    site.database = dbType;
+                    site.databaseVersion = siteConfig.config.databaseVersion;
                 }
             }
 
