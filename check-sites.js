@@ -1,6 +1,6 @@
 const {
     SimpleWordPressManager,
-} = require("./dist/main/services/simpleWordPressManager.js");
+} = require("./dist/main/main/services/simpleWordPressManager.js");
 
 async function checkSites() {
     const manager = new SimpleWordPressManager();
