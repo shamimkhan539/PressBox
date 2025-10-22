@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ComputerDesktopIcon } from '@heroicons/react/24/outline';
 import { ToolIcons, StatusDisplay } from '../components/Icons.tsx';
 import { HostsManager } from '../components/HostsManager';
+import { DatabaseManagement } from '../components/DatabaseManagement';
 
 interface ToolsProps {}
 
@@ -27,6 +28,7 @@ export function Tools() {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [showHostsManager, setShowHostsManager] = useState(false);
+  const [showDatabaseManagement, setShowDatabaseManagement] = useState(false);
 
   useEffect(() => {
     loadToolsData();
@@ -145,6 +147,43 @@ export function Tools() {
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+
+        {/* Database Management */}
+        <div className="card">
+          <div className="p-6">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+              <div className="w-8 h-8 bg-red-100 dark:bg-red-900 rounded-lg flex items-center justify-center mr-3">
+                🗄️
+              </div>
+              Database Management
+            </h2>
+
+            <div className="space-y-4">
+              <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                  Manage MySQL and MariaDB servers for your WordPress sites. Start, stop, and monitor database services.
+                </p>
+                <button
+                  onClick={() => setShowDatabaseManagement(true)}
+                  className="btn-primary"
+                >
+                  Open Database Manager
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <div className="text-sm font-medium text-blue-900 dark:text-blue-300">MySQL</div>
+                  <div className="text-xs text-blue-700 dark:text-blue-400">Port 3306</div>
+                </div>
+                <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                  <div className="text-sm font-medium text-green-900 dark:text-green-300">MariaDB</div>
+                  <div className="text-xs text-green-700 dark:text-green-400">Port 3307</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -355,6 +394,12 @@ export function Tools() {
       <HostsManager
         isOpen={showHostsManager}
         onClose={() => setShowHostsManager(false)}
+      />
+
+      {/* Database Management Modal */}
+      <DatabaseManagement
+        isOpen={showDatabaseManagement}
+        onClose={() => setShowDatabaseManagement(false)}
       />
     </div>
   );

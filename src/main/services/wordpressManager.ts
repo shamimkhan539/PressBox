@@ -201,6 +201,13 @@ export class WordPressManager {
                     adminPassword:
                         request.adminPassword || this.generatePassword(),
                     adminEmail: request.adminEmail || "admin@local.dev",
+                    // Database configuration
+                    database: request.database || "sqlite",
+                    databaseVersion: request.databaseVersion,
+                    dbName: request.dbName || `wp_${request.name}`,
+                    dbUser: request.dbUser || "wordpress",
+                    dbPassword: request.dbPassword || "wordpress",
+                    dbRootPassword: request.dbRootPassword || "",
                 };
 
                 console.log(`🔧 Simple config prepared:`, simpleConfig);

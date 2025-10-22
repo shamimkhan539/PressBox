@@ -14,9 +14,17 @@ import * as http from "http";
 import { promisify } from "util";
 import { pipeline } from "stream";
 import { createWriteStream, createReadStream } from "fs";
+import * as crypto from "crypto";
 
 const streamPipeline = promisify(pipeline);
 const execAsync = promisify(require("child_process").exec);
+
+/**
+ * Generate a secure random password
+ */
+function generateSecurePassword(length: number = 32): string {
+    return crypto.randomBytes(length).toString("base64").slice(0, length);
+}
 
 // Import adm-zip for WordPress extraction
 let AdmZip: any;
@@ -36,6 +44,8 @@ import {
 import { DebugLogger } from "./debugLogger";
 import { NonAdminMode } from "./nonAdminMode";
 import { FileLogger } from "./fileLogger";
+import { DatabaseServerManager } from "./databaseServerManager";
+import { PortableDatabaseManager } from "./portableDatabaseManager";
 
 // Internal site type with process tracking
 interface SimpleWordPressSite {
@@ -55,6 +65,8 @@ interface SimpleWordPressSite {
     adminUser?: string;
     adminPassword?: string;
     adminEmail?: string;
+    database?: "mysql" | "mariadb" | "sqlite";
+    databaseVersion?: string;
 }
 
 // Conversion functions
@@ -77,7 +89,7 @@ function simpleToWordPress(
         created: simple.created,
         lastAccessed: simple.lastAccessed,
         webServer: "nginx",
-        database: "sqlite", // Default to SQLite for simple sites
+        database: simple.database || "sqlite", // Use actual database type
         ssl: false,
         multisite: false,
         config: {
@@ -85,10 +97,10 @@ function simpleToWordPress(
             wordPressVersion: simple.wordpressVersion,
             dbName: `${simple.name}_db`,
             dbUser: "wp_user",
-            dbPassword: "password",
-            dbRootPassword: "rootpass",
+            dbPassword: generateSecurePassword(24),
+            dbRootPassword: generateSecurePassword(32),
             adminUser: adminUser || "admin",
-            adminPassword: adminPassword || "password",
+            adminPassword: adminPassword || generateSecurePassword(16),
             adminEmail: adminEmail || "admin@localhost.test",
             webServer: "nginx",
             database: "sqlite", // Required field
@@ -112,6 +124,8 @@ function wordPressToSimple(wp: WordPressSite): SimpleWordPressSite {
         phpVersion: wp.phpVersion,
         created: wp.created,
         lastAccessed: wp.lastAccessed,
+        database: wp.database,
+        databaseVersion: wp.databaseVersion,
     };
 }
 
@@ -139,12 +153,16 @@ export class SimpleWordPressManager {
     private tempPath: string;
     private usedPorts: Set<number> = new Set();
     private logger: DebugLogger;
+    private databaseServerManager: DatabaseServerManager;
+    private portableDatabaseManager: PortableDatabaseManager;
 
     constructor() {
         this.pressBoxPath = path.join(os.homedir(), "PressBox");
         this.sitesPath = path.join(this.pressBoxPath, "sites");
         this.tempPath = path.join(this.pressBoxPath, "temp");
         this.logger = new DebugLogger();
+        this.databaseServerManager = new DatabaseServerManager();
+        this.portableDatabaseManager = PortableDatabaseManager.getInstance();
         this.logger.clearLog();
         this.logger.log("SimpleWordPressManager constructor called");
 
@@ -336,6 +354,8 @@ export class SimpleWordPressManager {
                 adminUser: config.adminUser,
                 adminPassword: config.adminPassword,
                 adminEmail: config.adminEmail,
+                database: config.database || "sqlite",
+                databaseVersion: config.databaseVersion,
             };
 
             // Save site configuration
@@ -617,6 +637,156 @@ if ( ! isset( $wp_did_header ) ) {
     /**
      * Configure WordPress
      */
+    /**
+     * Verify if MySQL/MariaDB is available and can be connected
+     */
+    private async verifyMySQLAvailability(
+        config: SiteConfig
+    ): Promise<boolean> {
+        try {
+            console.log(`   🔍 Checking database server status...`);
+
+            const dbType = (config.database || "mysql") as "mysql" | "mariadb";
+            const dbVersion = config.databaseVersion || "8.0";
+
+            console.log(`   📊 Requested: ${dbType} ${dbVersion}`);
+
+            // STEP 1: Check if portable version is installed
+            console.log(
+                `   🔍 Checking if portable ${dbType} ${dbVersion} is installed...`
+            );
+            const isPortableInstalled =
+                await this.portableDatabaseManager.isVersionInstalled(
+                    dbType,
+                    dbVersion
+                );
+
+            if (!isPortableInstalled) {
+                console.log(
+                    `   ❌ Portable ${dbType} ${dbVersion} is not installed`
+                );
+                console.log(
+                    `   💡 Please install ${dbType} ${dbVersion} from the site creation modal`
+                );
+                return false;
+            }
+
+            console.log(`   ✅ Portable ${dbType} ${dbVersion} is installed`);
+
+            // STEP 2: Check if it's already running
+            const runningServers =
+                await this.portableDatabaseManager.getRunningServers();
+            const isRunning = runningServers.some(
+                (s) => s.type === dbType && s.version === dbVersion
+            );
+
+            if (isRunning) {
+                console.log(
+                    `   ✅ Portable ${dbType} ${dbVersion} is already running`
+                );
+                console.log(
+                    `   ℹ️  Using existing MySQL instance (no wait needed)`
+                );
+            } else {
+                // STEP 3: Start the portable server
+                console.log(
+                    `   🚀 Starting portable ${dbType} ${dbVersion}...`
+                );
+                const startResult =
+                    await this.portableDatabaseManager.startServer(
+                        dbType,
+                        dbVersion
+                    );
+
+                if (!startResult.success) {
+                    console.log(
+                        `   ❌ Failed to start ${dbType}: ${startResult.error}`
+                    );
+                    return false;
+                }
+
+                console.log(
+                    `   ✅ Portable database server started/connected successfully`
+                );
+
+                // Wait for the newly started server to be fully ready
+                console.log(`   ⏳ Waiting for server to be fully ready...`);
+                console.log(
+                    `   📊 MySQL initialization can take 5-10 seconds...`
+                );
+                await new Promise((resolve) => setTimeout(resolve, 8000));
+            }
+
+            // STEP 4: Test MySQL connection with retry logic
+            console.log(`   🔌 Testing MySQL connection...`);
+
+            const mysql = await import("mysql2/promise");
+            let connection;
+            let retries = 5;
+            let lastError;
+
+            while (retries > 0) {
+                try {
+                    console.log(`   🔄 Connection attempt ${6 - retries}/5...`);
+                    connection = await mysql.createConnection({
+                        host: "localhost",
+                        port: 3306,
+                        user: "root",
+                        password: config.dbRootPassword || "",
+                        connectTimeout: 5000,
+                    });
+
+                    console.log(`   ✅ MySQL connection successful`);
+
+                    // STEP 5: Create database if it doesn't exist
+                    const dbName = config.dbName || config.siteName;
+                    console.log(`   📊 Creating database: ${dbName}`);
+
+                    await connection.query(
+                        `CREATE DATABASE IF NOT EXISTS \`${dbName}\``
+                    );
+                    console.log(`   ✅ Database created or already exists`);
+
+                    await connection.end();
+                    return true;
+                } catch (connError: any) {
+                    lastError = connError;
+                    retries--;
+
+                    if (retries > 0) {
+                        console.log(
+                            `   ⚠️ Connection failed: ${connError.code || connError.message}`
+                        );
+                        console.log(
+                            `   🔄 Retrying in 2 seconds... (${retries} attempts left)`
+                        );
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, 2000)
+                        );
+                    } else {
+                        console.log(
+                            `   ❌ MySQL connection failed after all retries: ${lastError.code || lastError.message}`
+                        );
+                        if (connection) {
+                            try {
+                                await connection.end();
+                            } catch {}
+                        }
+                        return false;
+                    }
+                }
+            }
+
+            return false;
+        } catch (error: any) {
+            console.error(`   ❌ Error verifying MySQL availability:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Configure WordPress with appropriate database settings
+     */
     private async configureWordPress(
         sitePath: string,
         config: SiteConfig
@@ -632,7 +802,35 @@ if ( ! isset( $wp_did_header ) ) {
         );
 
         // Check database type and create appropriate wp-config.php
-        const databaseType = config.database || "sqlite";
+        let databaseType = config.database || "sqlite";
+
+        // Verify MySQL/MariaDB is available before configuring
+        if (databaseType === "mysql" || databaseType === "mariadb") {
+            console.log(
+                `🔍 Verifying ${databaseType.toUpperCase()} availability...`
+            );
+
+            const isAvailable = await this.verifyMySQLAvailability(config);
+
+            if (!isAvailable) {
+                console.warn(
+                    `⚠️ ${databaseType.toUpperCase()} is not available or connection failed`
+                );
+                console.log(
+                    `🔄 Automatically switching to SQLite for this site...`
+                );
+
+                // Update config to use SQLite
+                databaseType = "sqlite";
+                config.database = "sqlite";
+
+                console.log(`✅ Site will use SQLite database instead`);
+            } else {
+                console.log(
+                    `✅ ${databaseType.toUpperCase()} is available and ready`
+                );
+            }
+        }
 
         let wpConfig: string;
 
@@ -641,6 +839,11 @@ if ( ! isset( $wp_did_header ) ) {
             console.log(
                 `📊 Configuring WordPress with ${databaseType.toUpperCase()}`
             );
+
+            // For portable MySQL, use root user with blank password
+            // This matches how MySQL is initialized with --initialize-insecure
+            const dbUser = "root";
+            const dbPassword = config.dbRootPassword || "";
 
             wpConfig = `<?php
 /**
@@ -657,8 +860,8 @@ if ( ! isset( $wp_did_header ) ) {
 
 // ** MySQL/MariaDB Database Configuration ** //
 define( 'DB_NAME', '${config.dbName || config.siteName}' );
-define( 'DB_USER', '${config.dbUser || "wordpress"}' );
-define( 'DB_PASSWORD', '${config.dbPassword || "wordpress"}' );
+define( 'DB_USER', '${dbUser}' );
+define( 'DB_PASSWORD', '${dbPassword}' );
 define( 'DB_HOST', 'localhost' );
 define( 'DB_CHARSET', 'utf8mb4' );
 define( 'DB_COLLATE', '' );
@@ -803,6 +1006,32 @@ require_once ABSPATH . 'wp-settings.php';
             const htaccessPath = path.join(dbDir, ".htaccess");
             await fs.writeFile(htaccessPath, "Deny from all");
             console.log("✅ Database directory created");
+
+            // Install SQLite integration plugin (db.php drop-in)
+            console.log("📦 Installing SQLite integration...");
+            const wpContentPath = path.join(sitePath, "wp-content");
+            const dbPhpPath = path.join(wpContentPath, "db.php");
+
+            const dbPhp = `<?php
+/**
+ * SQLite Database Drop-in for WordPress
+ * This file makes WordPress use SQLite instead of MySQL
+ */
+
+if (!defined('DB_FILE')) {
+    define('DB_FILE', '.ht.sqlite');
+}
+
+if (!defined('DB_DIR')) {
+    define('DB_DIR', dirname(__FILE__) . '/database/');
+}
+
+// WordPress will use SQLite
+define('USE_MYSQL', false);
+`;
+
+            await fs.writeFile(dbPhpPath, dbPhp);
+            console.log("✅ SQLite integration installed");
         }
     }
 
@@ -819,27 +1048,126 @@ require_once ABSPATH . 'wp-settings.php';
         const dbUser = config.dbUser || "wordpress";
         const dbPassword = config.dbPassword || "wordpress";
 
+        // First, check if database server is running and start if needed
+        console.log(`   🔍 Checking database server status...`);
         try {
-            // Try to connect to MySQL
-            console.log(`   Connecting to MySQL server...`);
-            const connection = await mysql.createConnection({
-                host: "localhost",
-                port: 3306,
-                user: "root",
-                password: config.dbRootPassword || "",
-            });
+            const servers =
+                await this.databaseServerManager.getAllServerStatuses();
+            const runningServer = servers.find(
+                (s: any) => s.type === config.database && s.isRunning
+            );
 
-            console.log(`   ✅ Connected to MySQL server`);
+            if (!runningServer) {
+                console.log(`   ⚠️ ${config.database} server is not running`);
 
+                // Try to find and start a server
+                const availableServers = servers.filter(
+                    (s: any) => s.type === config.database
+                );
+
+                if (availableServers.length === 0) {
+                    throw new Error(
+                        `No ${config.database} server installations found.\n\n` +
+                            `Please install ${config.database} or use SQLite instead.\n` +
+                            `Go to Tools → Database Management for more options.`
+                    );
+                }
+
+                const serverToStart = availableServers[0];
+                console.log(
+                    `   🚀 Starting ${serverToStart.type} ${serverToStart.version}...`
+                );
+
+                const startResult =
+                    await this.databaseServerManager.startServer(serverToStart);
+
+                if (!startResult.success) {
+                    throw new Error(
+                        `Failed to start ${config.database}: ${startResult.error}`
+                    );
+                }
+
+                console.log(`   ✅ Database server started successfully`);
+
+                // Wait for server to be fully ready
+                await new Promise((resolve) => setTimeout(resolve, 3000));
+            } else {
+                console.log(
+                    `   ✅ ${runningServer.type} ${runningServer.version} is running`
+                );
+            }
+        } catch (serverError) {
+            console.warn(
+                `   ⚠️ Could not verify database server:`,
+                serverError
+            );
+            // Continue anyway and let MySQL connection attempt catch real issues
+        }
+
+        // Now try to connect to MySQL with retry logic
+        console.log(`   🔌 Connecting to MySQL server...`);
+        let connection;
+        let retries = 3;
+        let lastError;
+
+        while (retries > 0) {
+            try {
+                connection = await mysql.createConnection({
+                    host: "localhost",
+                    port: 3306,
+                    user: "root",
+                    password: config.dbRootPassword || "",
+                    connectTimeout: 10000,
+                });
+                console.log(`   ✅ Connected to MySQL server`);
+                break;
+            } catch (connError) {
+                lastError = connError;
+                retries--;
+                if (retries > 0) {
+                    console.log(
+                        `   ⚠️ Connection failed, retrying... (${retries} attempts left)`
+                    );
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                }
+            }
+        }
+
+        if (!connection) {
+            console.error(
+                `❌ Failed to connect to MySQL after multiple attempts`
+            );
+
+            // Provide helpful error messages
+            if ((lastError as any)?.code === "ECONNREFUSED") {
+                throw new Error(
+                    `MySQL is not running on localhost:3306.\n\n` +
+                        `Go to Tools → Database Management to start the server,\n` +
+                        `or create the site with SQLite database instead.`
+                );
+            } else if ((lastError as any)?.code === "ER_ACCESS_DENIED_ERROR") {
+                throw new Error(
+                    `MySQL authentication failed. Please check your root password.\n\n` +
+                        `Or create the site with SQLite database instead.`
+                );
+            }
+
+            throw new Error(
+                `Failed to connect to MySQL: ${(lastError as Error).message}\n\n` +
+                    `Try using SQLite database for easier setup.`
+            );
+        }
+
+        try {
             // Create database if it doesn't exist
-            console.log(`   Creating database: ${dbName}`);
+            console.log(`   📊 Creating database: ${dbName}`);
             await connection.query(
                 `CREATE DATABASE IF NOT EXISTS \`${dbName}\``
             );
             console.log(`   ✅ Database created: ${dbName}`);
 
             // Create user and grant privileges
-            console.log(`   Setting up database user: ${dbUser}`);
+            console.log(`   👤 Setting up database user: ${dbUser}`);
             await connection.query(
                 `CREATE USER IF NOT EXISTS '${dbUser}'@'localhost' IDENTIFIED BY '${dbPassword}'`
             );
@@ -849,33 +1177,156 @@ require_once ABSPATH . 'wp-settings.php';
             await connection.query("FLUSH PRIVILEGES");
             console.log(`   ✅ Database user configured`);
 
+            // Verify database is accessible
+            await connection.query(`USE \`${dbName}\``);
+            console.log(`   ✅ Database verified and accessible`);
+
             await connection.end();
             console.log(`✅ MySQL database setup complete`);
         } catch (error) {
-            console.error(`❌ Failed to setup MySQL database:`, error);
-
-            // Provide helpful error messages
-            if ((error as any).code === "ECONNREFUSED") {
-                throw new Error(
-                    `MySQL is not running on localhost:3306.\n\n` +
-                        `Please install and start MySQL or MariaDB:\n` +
-                        `  Windows: https://dev.mysql.com/downloads/installer/\n` +
-                        `  macOS: brew install mysql && brew services start mysql\n` +
-                        `  Linux: sudo apt-get install mysql-server && sudo systemctl start mysql\n\n` +
-                        `Alternatively, create the site with SQLite database instead.`
-                );
-            } else if ((error as any).code === "ER_ACCESS_DENIED_ERROR") {
-                throw new Error(
-                    `MySQL authentication failed.\n\n` +
-                        `Please check your MySQL root password or create the site with SQLite database instead.`
-                );
+            if (connection) {
+                try {
+                    await connection.end();
+                } catch (closeError) {
+                    // Ignore connection close errors
+                }
             }
 
-            throw new Error(
-                `Failed to setup MySQL database: ${(error as Error).message}\n\n` +
-                    `You can create the site with SQLite database instead for easier setup.`
-            );
+            console.error(`❌ Failed to setup MySQL database:`, error);
+            throw error;
         }
+    }
+
+    /**
+     * Fallback to SQLite when MySQL/MariaDB is unavailable
+     */
+    private async fallbackToSQLite(
+        site: SimpleWordPressSite,
+        config: SiteConfig
+    ): Promise<void> {
+        console.log(`   🔄 Configuring SQLite database...`);
+
+        // Create wp-config.php with SQLite configuration
+        const wpConfigPath = path.join(site.path, "wp-config.php");
+
+        // Generate SQLite wp-config.php
+        const dbName = config.dbName || site.name.replace(/[^a-z0-9_]/gi, "_");
+        const wpConfig = `<?php
+/**
+ * WordPress Configuration - SQLite Database
+ * Generated by PressBox
+ */
+
+// SQLite Database Configuration
+define('DB_DIR', dirname(__FILE__) . '/wp-content/database/');
+define('DB_FILE', 'wordpress.db');
+
+// Use SQLite instead of MySQL
+define('USE_MYSQL', false);
+
+// Authentication Unique Keys and Salts
+define('AUTH_KEY',         '${this.generateSalt()}');
+define('SECURE_AUTH_KEY',  '${this.generateSalt()}');
+define('LOGGED_IN_KEY',    '${this.generateSalt()}');
+define('NONCE_KEY',        '${this.generateSalt()}');
+define('AUTH_SALT',        '${this.generateSalt()}');
+define('SECURE_AUTH_SALT', '${this.generateSalt()}');
+define('LOGGED_IN_SALT',   '${this.generateSalt()}');
+define('NONCE_SALT',       '${this.generateSalt()}');
+
+// WordPress Database Table prefix
+$table_prefix = 'wp_';
+
+// WordPress debugging mode
+define('WP_DEBUG', true);
+define('WP_DEBUG_LOG', true);
+define('WP_DEBUG_DISPLAY', false);
+
+// Absolute path to the WordPress directory
+if (!defined('ABSPATH')) {
+    define('ABSPATH', __DIR__ . '/');
+}
+
+// Sets up WordPress vars and included files
+require_once ABSPATH . 'wp-settings.php';
+`;
+
+        await fs.writeFile(wpConfigPath, wpConfig);
+        console.log(`   ✅ Created SQLite wp-config.php`);
+
+        // Create database directory
+        const dbDir = path.join(site.path, "wp-content", "database");
+        await fs.mkdir(dbDir, { recursive: true });
+        console.log(`   ✅ Created database directory`);
+
+        // Install SQLite integration plugin
+        await this.installSQLitePlugin(site);
+
+        console.log(`   ✅ SQLite fallback configured successfully`);
+    }
+
+    /**
+     * Install SQLite integration plugin (db.php drop-in)
+     */
+    private async installSQLitePlugin(
+        site: SimpleWordPressSite
+    ): Promise<void> {
+        console.log(`   📦 Installing SQLite integration...`);
+
+        const wpContentPath = path.join(site.path, "wp-content");
+        const dbPhpPath = path.join(wpContentPath, "db.php");
+
+        // Simple SQLite db.php drop-in
+        const dbPhp = `<?php
+/**
+ * SQLite Database Drop-in for WordPress
+ * This file makes WordPress use SQLite instead of MySQL
+ */
+
+if (!defined('DB_FILE')) {
+    define('DB_FILE', 'wordpress.db');
+}
+
+if (!defined('DB_DIR')) {
+    define('DB_DIR', dirname(__FILE__) . '/database/');
+}
+
+// Load PDO SQLite driver
+require_once ABSPATH . 'wp-includes/wp-db.php';
+
+// Override default MySQL database class with SQLite version
+class wpdb extends wpdb_base {
+    private $pdo;
+    
+    public function __construct($dbuser, $dbpassword, $dbname, $dbhost) {
+        $db_file = DB_DIR . DB_FILE;
+        
+        // Create database directory if it doesn't exist
+        if (!file_exists(DB_DIR)) {
+            mkdir(DB_DIR, 0755, true);
+        }
+        
+        try {
+            $this->pdo = new PDO('sqlite:' . $db_file);
+            $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $this->ready = true;
+        } catch (PDOException $e) {
+            $this->ready = false;
+            error_log('SQLite Connection Error: ' . $e->getMessage());
+        }
+    }
+}
+`;
+
+        await fs.writeFile(dbPhpPath, dbPhp);
+        console.log(`   ✅ SQLite integration installed`);
+    }
+
+    /**
+     * Generate a random salt for WordPress security keys
+     */
+    private generateSalt(): string {
+        return crypto.randomBytes(32).toString("base64");
     }
 
     /**
@@ -905,9 +1356,42 @@ require_once ABSPATH . 'wp-settings.php';
             const dbType = siteConfig.config?.database || "sqlite";
             if (dbType === "mysql" || dbType === "mariadb") {
                 console.log(
-                    `📊 Setting up ${dbType.toUpperCase()} database...`
+                    `📊 Verifying ${dbType.toUpperCase()} database availability...`
                 );
-                await this.setupMySQLDatabase(site, siteConfig.config);
+
+                // Use the same verification method as site creation
+                const isAvailable = await this.verifyMySQLAvailability(
+                    siteConfig.config
+                );
+
+                if (!isAvailable) {
+                    console.warn(`⚠️ MySQL/MariaDB not available`);
+                    console.log(`🔄 Falling back to SQLite database...`);
+
+                    // Fallback to SQLite
+                    await this.fallbackToSQLite(site, siteConfig.config);
+
+                    // Update site and config to reflect SQLite usage
+                    site.database = "sqlite";
+                    siteConfig.config.database = "sqlite";
+
+                    // Save updated config
+                    const configPath = path.join(
+                        site.path,
+                        "pressbox-config.json"
+                    );
+                    await fs.writeFile(
+                        configPath,
+                        JSON.stringify(siteConfig, null, 2)
+                    );
+
+                    console.log(`✅ Successfully fell back to SQLite`);
+                } else {
+                    console.log(`✅ ${dbType.toUpperCase()} is ready`);
+                    // Update site configuration with actual database type used
+                    site.database = dbType;
+                    site.databaseVersion = siteConfig.config.databaseVersion;
+                }
             }
 
             await this.startPHPServer(site);
@@ -1330,7 +1814,7 @@ require_once ABSPATH . 'wp-settings.php';
 
         // Prepare installation data
         const postData = new URLSearchParams({
-            weblog_title: config.siteName || "PressBox Site",
+            site_title: config.siteName || "PressBox Site",
             user_name: config.adminUser,
             admin_password: config.adminPassword,
             admin_password2: config.adminPassword,

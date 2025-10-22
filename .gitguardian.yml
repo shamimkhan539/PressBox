@@ -1,0 +1,60 @@
+# GitGuardian Configuration
+# https://docs.gitguardian.com/internal-repositories-monitoring/integrations/git_hooks/pre_commit
+
+# Paths to ignore during secret scanning
+paths-ignore:
+  # Test files with example credentials (development only)
+  - "**/*test*.js"
+  - "**/*test*.ts"
+  - "**/*-test.js"
+  - "**/*-test.ts"
+  - "**/test-*.js"
+  - "**/test-*.ts"
+  - "**/demo-*.js"
+  - "**/debug-*.js"
+  - "**/quick-*.js"
+  - "**/scripts/test-*.js"
+  
+  # Build output directories
+  - "dist/**"
+  - "out/**"
+  - "build/**"
+  - "release/**"
+  - "node_modules/**"
+  
+  # Documentation with code examples
+  - "docs/**/*.md"
+  - "**/*_GUIDE.md"
+  - "**/*_STATUS.md"
+  - "**/*_COMPLETE.md"
+
+# Minimum occurrence of a secret before alerting
+minimum-occurrences: 1
+
+# Detectors to enable/disable
+detectors:
+  # Enable all detectors by default
+  default: true
+  
+  # Specifically monitor for:
+  - generic-high-entropy-secret
+  - database-connection-string
+  - generic-password
+  - api-key
+
+# Custom patterns to ignore
+matches-ignore:
+  # Example/placeholder passwords in test files (already ignored via paths-ignore)
+  - name: "Test placeholder passwords"
+    match: "password123|admin123|test123"
+    
+  # Local development URLs (not secrets)
+  - name: "Local development URLs"
+    match: "localhost|127\\.0\\.0\\.1|\\*\\.local"
+
+# Exit codes
+exit-zero: false  # Return non-zero exit code when secrets found
+
+# Output format
+verbose: true
+show-secrets: false  # Don't display actual secret values in logs

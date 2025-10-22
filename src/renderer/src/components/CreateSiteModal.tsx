@@ -42,11 +42,32 @@ const WP_LANGUAGES = [
   { code: 'fi', name: 'Suomi' },
 ];
 
+// Generate a secure random password
+function generateSecurePassword(length: number = 16): string {
+  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  let password = '';
+  
+  // Ensure at least one of each type
+  password += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)]; // uppercase
+  password += 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)]; // lowercase
+  password += '0123456789'[Math.floor(Math.random() * 10)]; // number
+  password += '!@#$%^&*'[Math.floor(Math.random() * 8)]; // special char
+  
+  // Fill the rest randomly
+  for (let i = password.length; i < length; i++) {
+    password += charset[Math.floor(Math.random() * charset.length)];
+  }
+  
+  // Shuffle the password
+  return password.split('').sort(() => Math.random() - 0.5).join('');
+}
+
 export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteModalProps) {
   const [creationMode, setCreationMode] = useState<'template' | 'blueprint' | 'custom'>('custom');
   const [currentStep, setCurrentStep] = useState<'mode' | 'template' | 'configuration' | 'wordpress' | 'review'>('mode');
   const [selectedTemplate, setSelectedTemplate] = useState<SiteTemplate | null>(null);
   const [selectedBlueprint, setSelectedBlueprint] = useState<any>(null);
+  const [isDomainManuallyEdited, setIsDomainManuallyEdited] = useState(false);
   
   const [formData, setFormData] = useState({
     // Basic Info
@@ -60,6 +81,7 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
     // Database Configuration
     database: 'mysql' as 'mysql' | 'mariadb' | 'sqlite',
     databaseVersion: '8.0',
+    dbRootPassword: '',
     
     // Web Server Configuration
     webServer: 'nginx' as 'nginx' | 'apache',
@@ -77,9 +99,57 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
   });
 
   const [creating, setCreating] = useState(false);
+  const [creatingProgress, setCreatingProgress] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [showBlueprintSelector, setShowBlueprintSelector] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [availableDbVersions, setAvailableDbVersions] = useState<Set<string>>(new Set());
+  const [installedPhpVersions, setInstalledPhpVersions] = useState<Set<string>>(new Set());
+  const [downloadProgress, setDownloadProgress] = useState<{percent: number; status: string} | null>(null);
+
+  // Detect installed portable database and PHP versions
+  useEffect(() => {
+    const detectInstalledVersions = async () => {
+      const installedDb = new Set<string>();
+      const installedPhp = new Set<string>();
+      
+      try {
+        console.log('🔍 Detecting installed database versions...');
+        
+        // Check portable MySQL versions
+        for (const version of MYSQL_VERSIONS) {
+          const installed = await window.electronAPI?.portable?.isVersionInstalled?.('mysql', version);
+          console.log(`  MySQL ${version}: ${installed ? '✅ INSTALLED' : '❌ NOT INSTALLED'}`);
+          if (installed) {
+            installedDb.add(`mysql-${version}`);
+          }
+        }
+        
+        // Check portable MariaDB versions
+        for (const version of MARIADB_VERSIONS) {
+          const installed = await window.electronAPI?.portable?.isVersionInstalled?.('mariadb', version);
+          console.log(`  MariaDB ${version}: ${installed ? '✅ INSTALLED' : '❌ NOT INSTALLED'}`);
+          if (installed) {
+            installedDb.add(`mariadb-${version}`);
+          }
+        }
+
+        console.log('📊 Installed databases:', Array.from(installedDb));
+
+        // TODO: Check portable PHP versions when PHP manager is updated
+        // For now, assume PHP is available (backward compatibility)
+        PHP_VERSIONS.forEach(v => installedPhp.add(v));
+        
+      } catch (error) {
+        console.error('❌ Failed to detect installed versions:', error);
+      }
+      
+      setAvailableDbVersions(installedDb);
+      setInstalledPhpVersions(installedPhp);
+    };
+    
+    detectInstalledVersions();
+  }, []);
 
   // Auto-generate secure password on mount
   useEffect(() => {
@@ -92,15 +162,30 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
     }
   }, []);
 
-  // Update admin email when site name or domain changes
+  // Auto-update domain when site name changes (unless manually edited)
   useEffect(() => {
-    if (!formData.adminEmail || formData.adminEmail === 'admin@localhost.test') {
-      const domain = formData.domain || `${formData.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.local`;
-      if (domain && formData.name) {
-        setFormData(prev => ({ ...prev, adminEmail: `admin@${domain}` }));
+    if (formData.name && !isDomainManuallyEdited) {
+      const autoDomain = `${formData.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.local`;
+      setFormData(prev => ({ ...prev, domain: autoDomain }));
+    }
+  }, [formData.name, isDomainManuallyEdited]);
+
+  // Update admin email when domain changes (only if email is empty or default)
+  useEffect(() => {
+    const domain = formData.domain || `${formData.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.local`;
+    
+    if (formData.name && domain) {
+      // Only update if email is empty or follows the default pattern
+      const isDefaultEmail = !formData.adminEmail || formData.adminEmail === '' || formData.adminEmail.startsWith('admin@');
+      
+      if (isDefaultEmail) {
+        const newEmail = `admin@${domain}`;
+        if (formData.adminEmail !== newEmail) {
+          setFormData(prev => ({ ...prev, adminEmail: newEmail }));
+        }
       }
     }
-  }, [formData.name, formData.domain]);
+  }, [formData.name, formData.domain, formData.adminEmail]);
 
   // Update database version when database type changes
   useEffect(() => {
@@ -122,17 +207,54 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
     }
   }, [formData.webServer]);
 
-  const generateSecurePassword = () => {
-    const length = 16;
-    const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-    let password = '';
-    for (let i = 0; i < length; i++) {
-      password += charset.charAt(Math.floor(Math.random() * charset.length));
+  const handleInstallDatabase = async (type: 'mysql' | 'mariadb', version: string) => {
+    try {
+      setCreating(true);
+      setDownloadProgress({ percent: 0, status: 'Initializing download...' });
+      
+      // Set up progress listener
+      const cleanup = window.electronAPI?.portable?.onInstallProgress?.((progress: any) => {
+        setDownloadProgress({
+          percent: progress.percent || 0,
+          status: progress.status || 'Downloading...'
+        });
+      });
+
+      const result = await window.electronAPI?.portable?.installVersion?.(type, version);
+
+      // Clean up progress listener
+      cleanup?.();
+
+      if (result?.success) {
+        setDownloadProgress({ percent: 100, status: 'Installation complete!' });
+        
+        // Refresh installed versions
+        const installed = await window.electronAPI?.portable?.isVersionInstalled?.(type, version);
+        if (installed) {
+          setAvailableDbVersions(prev => new Set([...prev, `${type}-${version}`]));
+        }
+        
+        setTimeout(() => {
+          setCreating(false);
+          setDownloadProgress(null);
+        }, 2000);
+      } else {
+        throw new Error(result?.error || 'Installation failed');
+      }
+    } catch (error: any) {
+      console.error(`Failed to install ${type} ${version}:`, error);
+      setError(`Failed to install ${type} ${version}: ${error.message}`);
+      setCreating(false);
+      setDownloadProgress(null);
     }
-    return password;
   };
 
   const handleInputChange = (field: string, value: any) => {
+    // Track if domain is manually edited
+    if (field === 'domain') {
+      setIsDomainManuallyEdited(true);
+    }
+    
     setFormData(prev => ({ ...prev, [field]: value }));
     setError(null);
   };
@@ -229,6 +351,7 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
     try {
       setCreating(true);
       setError(null);
+      setCreatingProgress('Preparing site configuration...');
 
       const siteConfig = {
         name: formData.name.trim(),
@@ -237,6 +360,10 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
         wordPressVersion: formData.wordPressVersion,
         database: formData.database,
         databaseVersion: formData.databaseVersion,
+        dbName: `wp_${formData.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+        dbUser: 'wordpress',
+        dbPassword: 'wordpress',
+        dbRootPassword: formData.dbRootPassword,
         webServer: formData.webServer,
         webServerVersion: formData.webServerVersion,
         ssl: formData.ssl,
@@ -247,11 +374,19 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
         wpLanguage: formData.wpLanguage,
       };
 
+      setCreatingProgress('Creating site directory...');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      setCreatingProgress('Downloading WordPress...');
+      await new Promise(resolve => setTimeout(resolve, 300));
+
       let result;
 
       if (creationMode === 'blueprint' && selectedBlueprint) {
+        setCreatingProgress('Creating site from blueprint...');
         result = await window.electronAPI.blueprints.createSite(selectedBlueprint.id, siteConfig);
       } else if (selectedTemplate) {
+        setCreatingProgress('Creating site from template...');
         result = await window.electronAPI.sites.create({
           ...siteConfig,
           template: selectedTemplate.id,
@@ -259,13 +394,46 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
           themes: selectedTemplate.config.themes,
         });
       } else {
+        setCreatingProgress('Creating WordPress site...');
         result = await window.electronAPI.sites.create(siteConfig);
       }
+      
+      setCreatingProgress('Configuring WordPress...');
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       if ((result as any).success || result) {
-        resetModal();
-        onSiteCreated();
+        setCreatingProgress('Site created successfully! ✅');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Close modal immediately after successful creation
         onClose();
+        resetModal();
+        
+        // Get the created site object with port info
+        const createdSite = (result as any).site || result;
+        const siteId = createdSite?.id;
+        const sitePort = createdSite?.port || 8080;
+        
+        if (siteId) {
+          // Auto-start the site (don't await - let it happen in background)
+          console.log(`🚀 Auto-starting site: ${siteId}`);
+          window.electronAPI.sites.start(siteId).then(() => {
+            console.log(`✅ Site started successfully`);
+            
+            // Wait a bit for site to fully start
+            return new Promise(resolve => setTimeout(resolve, 3000));
+          }).then(() => {
+            // Auto-open in browser with correct URL (use localhost to avoid DNS issues)
+            const siteUrl = createdSite?.url || `http://localhost:${sitePort}`;
+            console.log(`🌐 Opening site in browser: ${siteUrl}`);
+            (window.electronAPI as any).shell.openExternal(siteUrl);
+          }).catch(startError => {
+            console.error('Failed to auto-start site:', startError);
+          });
+        }
+        
+        // Refresh sites list
+        onSiteCreated();
       } else {
         setError((result as any).error || 'Failed to create site');
       }
@@ -273,6 +441,7 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
       setError(error.message || 'Failed to create site. Please try again.');
     } finally {
       setCreating(false);
+      setCreatingProgress('');
     }
   };
 
@@ -281,6 +450,7 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
     setCreationMode('custom');
     setSelectedTemplate(null);
     setSelectedBlueprint(null);
+    setIsDomainManuallyEdited(false); // Reset domain editing flag
     setFormData({
       name: '',
       domain: '',
@@ -288,6 +458,7 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
       wordPressVersion: 'latest',
       database: 'mysql',
       databaseVersion: '8.0',
+      dbRootPassword: '',
       webServer: 'nginx',
       webServerVersion: '1.25',
       ssl: false,
@@ -309,8 +480,8 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 pointer-events-none">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col pointer-events-auto">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <div>
@@ -505,34 +676,108 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="form-label">Database Type *</label>
-                    <select
-                      value={formData.database}
-                      onChange={(e) => handleInputChange('database', e.target.value as any)}
-                      className="form-input"
-                      disabled={creating}
-                    >
-                      <option value="mysql">MySQL</option>
-                      <option value="mariadb">MariaDB</option>
-                      <option value="sqlite">SQLite</option>
-                    </select>
+                    <div className="relative">
+                      <select
+                        value={formData.database}
+                        onChange={(e) => handleInputChange('database', e.target.value as any)}
+                        className="form-input pr-8"
+                        disabled={creating}
+                      >
+                        <option value="mysql">MySQL {MYSQL_VERSIONS.some(v => availableDbVersions.has(`mysql-${v}`)) ? '✓' : '📥'}</option>
+                        <option value="mariadb">MariaDB {MARIADB_VERSIONS.some(v => availableDbVersions.has(`mariadb-${v}`)) ? '✓' : '📥'}</option>
+                        <option value="sqlite">SQLite ✓</option>
+                      </select>
+                      {((formData.database === 'mysql' && !MYSQL_VERSIONS.some(v => availableDbVersions.has(`mysql-${v}`))) ||
+                        (formData.database === 'mariadb' && !MARIADB_VERSIONS.some(v => availableDbVersions.has(`mariadb-${v}`)))) && (
+                        <button
+                          type="button"
+                          onClick={() => handleInstallDatabase(formData.database as 'mysql' | 'mariadb', formData.databaseVersion)}
+                          className="absolute right-2 top-1/2 transform -translate-y-1/2 text-blue-600 hover:text-blue-700"
+                          title={`Install ${formData.database}`}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                    {((formData.database === 'mysql' && !MYSQL_VERSIONS.some(v => availableDbVersions.has(`mysql-${v}`))) ||
+                      (formData.database === 'mariadb' && !MARIADB_VERSIONS.some(v => availableDbVersions.has(`mariadb-${v}`)))) && (
+                      <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                        Click download icon to install {formData.database}
+                      </p>
+                    )}
                   </div>
 
                   {formData.database !== 'sqlite' && (
                     <div>
                       <label className="form-label">Database Version</label>
-                      <select
-                        value={formData.databaseVersion}
-                        onChange={(e) => handleInputChange('databaseVersion', e.target.value)}
+                      <div className="flex gap-2">
+                        <select
+                          value={formData.databaseVersion}
+                          onChange={(e) => handleInputChange('databaseVersion', e.target.value)}
+                          className="form-input flex-1"
+                          disabled={creating}
+                        >
+                          {formData.database === 'mysql' && MYSQL_VERSIONS.map(v => (
+                            <option key={v} value={v}>
+                              {availableDbVersions.has(`mysql-${v}`) ? '✓' : '📥'} MySQL {v}
+                            </option>
+                          ))}
+                          {formData.database === 'mariadb' && MARIADB_VERSIONS.map(v => (
+                            <option key={v} value={v}>
+                              {availableDbVersions.has(`mariadb-${v}`) ? '✓' : '📥'} MariaDB {v}
+                            </option>
+                          ))}
+                        </select>
+                        {!availableDbVersions.has(`${formData.database}-${formData.databaseVersion}`) && (
+                          <button
+                            type="button"
+                            onClick={() => handleInstallDatabase(formData.database as 'mysql' | 'mariadb', formData.databaseVersion)}
+                            disabled={creating}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                            title={`Install ${formData.database} ${formData.databaseVersion}`}
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Install
+                          </button>
+                        )}
+                      </div>
+                      {!availableDbVersions.has(`${formData.database}-${formData.databaseVersion}`) && (
+                        <p className="text-xs text-orange-600 dark:text-orange-400 mt-1 flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          This version is not installed. Click "Install" to download (~{formData.database === 'mysql' ? '350' : '180'} MB)
+                        </p>
+                      )}
+                      {availableDbVersions.has(`${formData.database}-${formData.databaseVersion}`) && (
+                        <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Installed and ready to use
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {formData.database !== 'sqlite' && (
+                    <div>
+                      <label className="form-label">MySQL Root Password</label>
+                      <input
+                        type="password"
+                        value={formData.dbRootPassword}
+                        onChange={(e) => handleInputChange('dbRootPassword', e.target.value)}
                         className="form-input"
+                        placeholder="Leave empty to auto-fallback to SQLite"
                         disabled={creating}
-                      >
-                        {formData.database === 'mysql' && MYSQL_VERSIONS.map(v => (
-                          <option key={v} value={v}>MySQL {v}</option>
-                        ))}
-                        {formData.database === 'mariadb' && MARIADB_VERSIONS.map(v => (
-                          <option key={v} value={v}>MariaDB {v}</option>
-                        ))}
-                      </select>
+                      />
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        If MySQL is not available, the site will automatically use SQLite
+                      </p>
                     </div>
                   )}
                 </div>
@@ -580,9 +825,14 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
                       disabled={creating}
                     >
                       {PHP_VERSIONS.map(v => (
-                        <option key={v} value={v}>PHP {v}</option>
+                        <option key={v} value={v}>
+                          {installedPhpVersions.has(v) ? '✓' : '📥'} PHP {v}
+                        </option>
                       ))}
                     </select>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      ✓ = Installed, 📥 = Will auto-download if needed
+                    </p>
                   </div>
                 </div>
               </div>
@@ -792,6 +1042,14 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
                           <dd className="text-blue-900 dark:text-blue-100 font-medium">{formData.databaseVersion}</dd>
                         </div>
                       )}
+                      {formData.database !== 'sqlite' && (
+                        <div className="flex justify-between">
+                          <dt className="text-blue-700 dark:text-blue-300">Root Password:</dt>
+                          <dd className="text-blue-900 dark:text-blue-100 font-medium">
+                            {formData.dbRootPassword ? '••••••••' : 'Not set'}
+                          </dd>
+                        </div>
+                      )}
                     </dl>
                   </div>
 
@@ -871,10 +1129,16 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
             {currentStep === 'review' ? (
               <button
                 onClick={handleSubmit}
-                className="btn-primary"
+                className="btn-primary flex items-center space-x-2"
                 disabled={creating}
               >
-                {creating ? 'Creating Site...' : 'Create Site'}
+                {creating && (
+                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                )}
+                <span>{creatingProgress || (creating ? 'Creating Site...' : 'Create Site')}</span>
               </button>
             ) : (
               <button
@@ -901,6 +1165,49 @@ export function CreateSiteModal({ isOpen, onClose, onSiteCreated }: CreateSiteMo
           onClose={() => setShowBlueprintSelector(false)}
           onSelectBlueprint={handleBlueprintSelect}
         />
+      )}
+
+      {/* Download Progress Modal */}
+      {downloadProgress && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60]">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </div>
+              
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Installing Database
+              </h3>
+              
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                {downloadProgress.status}
+              </p>
+
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 mb-2 overflow-hidden">
+                <div 
+                  className="bg-blue-600 h-full transition-all duration-300 ease-out rounded-full"
+                  style={{ width: `${downloadProgress.percent}%` }}
+                />
+              </div>
+              
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {downloadProgress.percent}%
+              </p>
+
+              {downloadProgress.percent === 100 && (
+                <div className="mt-4 flex items-center justify-center text-green-600 dark:text-green-400">
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm font-medium">Complete!</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
