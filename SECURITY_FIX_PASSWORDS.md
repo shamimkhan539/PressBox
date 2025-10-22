@@ -18,11 +18,13 @@ GitGuardian detected hardcoded database passwords in `simpleWordPressManager.ts`
 ## 🔍 Vulnerability Details
 
 ### **Location**
+
 - **File**: `src/main/services/simpleWordPressManager.ts`
 - **Lines**: 93-96
 - **Commit**: `7575b4396654494e9421a69cff24c6ff9692392a`
 
 ### **Issue**
+
 ```typescript
 // ❌ BEFORE (INSECURE)
 dbPassword: "password",
@@ -31,6 +33,7 @@ adminPassword: adminPassword || "password",
 ```
 
 Hardcoded passwords pose security risks:
+
 - **Predictable credentials** make systems vulnerable to attacks
 - **Same passwords** used across all installations
 - **Version control exposure** - passwords visible in Git history
@@ -41,6 +44,7 @@ Hardcoded passwords pose security risks:
 ## ✅ Fix Implemented
 
 ### **Solution**
+
 Added `generateSecurePassword()` function using Node.js `crypto` module:
 
 ```typescript
@@ -59,6 +63,7 @@ adminPassword: adminPassword || generateSecurePassword(16), // 16-character pass
 ```
 
 ### **Password Strength**
+
 - **Database passwords**: 24 characters (192 bits of entropy)
 - **Root passwords**: 32 characters (256 bits of entropy)
 - **Admin passwords**: 16 characters (128 bits of entropy when auto-generated)
@@ -80,13 +85,14 @@ adminPassword: adminPassword || generateSecurePassword(16), // 16-character pass
 ## 📝 Additional Fixes
 
 ### WordPress Site Title Parameter
+
 Also fixed incorrect parameter name in WordPress installation:
 
 ```typescript
 // ❌ BEFORE
 weblog_title: config.siteName || "PressBox Site",
 
-// ✅ AFTER  
+// ✅ AFTER
 site_title: config.siteName || "PressBox Site",
 ```
 
@@ -108,13 +114,15 @@ Test files (`test-site-creation.js`, `test-real-site-creation.js`, etc.) still u
 ## 📊 Verification
 
 ### **Build Status**
+
 ```bash
 ✅ npm run build - SUCCESS
-✅ TypeScript compilation - SUCCESS  
+✅ TypeScript compilation - SUCCESS
 ✅ No type errors
 ```
 
 ### **Commit Details**
+
 - **Commit Hash**: `41141d4`
 - **Branch**: `development`
 - **Pushed**: October 22, 2025
@@ -125,11 +133,13 @@ Test files (`test-site-creation.js`, `test-real-site-creation.js`, etc.) still u
 ## 🎯 Impact
 
 ### **Before Fix**
+
 - ⚠️ All WordPress sites used same predictable passwords
 - ⚠️ Credentials exposed in version control
 - ⚠️ Security vulnerability for any public deployment
 
 ### **After Fix**
+
 - ✅ Each site gets unique cryptographically random passwords
 - ✅ No credentials stored in source code
 - ✅ Compliant with security best practices
@@ -150,7 +160,7 @@ Test files (`test-site-creation.js`, `test-real-site-creation.js`, etc.) still u
 
 **Status**: **RESOLVED**  
 **Fix Commit**: `41141d4`  
-**Verification**: GitGuardian will automatically detect fix in next scan  
+**Verification**: GitGuardian will automatically detect fix in next scan
 
 All hardcoded passwords have been replaced with secure random generation. The vulnerability is **completely resolved**.
 
