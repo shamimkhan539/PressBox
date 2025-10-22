@@ -19,6 +19,13 @@ import * as crypto from "crypto";
 const streamPipeline = promisify(pipeline);
 const execAsync = promisify(require("child_process").exec);
 
+/**
+ * Generate a secure random password
+ */
+function generateSecurePassword(length: number = 32): string {
+    return crypto.randomBytes(length).toString("base64").slice(0, length);
+}
+
 // Import adm-zip for WordPress extraction
 let AdmZip: any;
 try {
@@ -90,10 +97,10 @@ function simpleToWordPress(
             wordPressVersion: simple.wordpressVersion,
             dbName: `${simple.name}_db`,
             dbUser: "wp_user",
-            dbPassword: "password",
-            dbRootPassword: "rootpass",
+            dbPassword: generateSecurePassword(24),
+            dbRootPassword: generateSecurePassword(32),
             adminUser: adminUser || "admin",
-            adminPassword: adminPassword || "password",
+            adminPassword: adminPassword || generateSecurePassword(16),
             adminEmail: adminEmail || "admin@localhost.test",
             webServer: "nginx",
             database: "sqlite", // Required field
@@ -1807,7 +1814,7 @@ class wpdb extends wpdb_base {
 
         // Prepare installation data
         const postData = new URLSearchParams({
-            weblog_title: config.siteName || "PressBox Site",
+            site_title: config.siteName || "PressBox Site",
             user_name: config.adminUser,
             admin_password: config.adminPassword,
             admin_password2: config.adminPassword,
